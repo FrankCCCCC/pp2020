@@ -134,9 +134,9 @@ float* OESort(int rank, int c_size, float *buf, int b_size, int n){
     // std::sort(buf, &(buf[b_size]));
     // printf("rank %d has array[%d]: %f %f\n", rank, b_size, buf[0], buf[1]);
     // show_arr(buf, b_size);
-    int is_all_change = 1;
+    // int is_all_change = 1;
     t.pause_rec("cpu");
-    for(int phase = 0; phase <= c_size && is_all_change; phase++){
+    for(int phase = 0; phase <= c_size; phase++){
         t.start_rec("cpu");
         // Check whether the target rank exist or not
         int target_rank = -1, in_pair_id = 0;
@@ -155,17 +155,24 @@ float* OESort(int rank, int c_size, float *buf, int b_size, int n){
         t.pause_rec("cpu");
         // If there is no target rank, wait for reduce & sync
         if(target_rank == -1){
-            t.start_rec("comm");
-            t.start_rec("comm_r");
-            MPI_Allreduce(&is_change, &is_all_change, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
-            t.pause_rec("comm");
-            t.pause_rec("comm_r");
+            // t.start_rec("comm");
+            // t.start_rec("comm_r");
+            // MPI_Allreduce(&is_change, &is_all_change, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
+            // t.pause_rec("comm");
+            // t.pause_rec("comm_r");
             continue;
         }
 
         // Phase Sorting
-        t.start_rec("cpu");
+        
         MPI_Request req_s, req_r;
+        t.start_rec("comm");
+        // t.start_rec("comm_t");
+        MPI_Isend(buf, b_size, MPI_FLOAT, target_rank, in_pair_id, MPI_COMM_WORLD, &req_s);
+        t.pause_rec("comm");
+        // t.pause_rec("comm_t");
+
+        t.start_rec("cpu");
         int b_t_size = count_b_size(target_rank, c_size, n);
         t.start_rec("cpu_mem");
         float *buf_t = (float*)malloc(sizeof(float) * b_t_size);
@@ -173,13 +180,13 @@ float* OESort(int rank, int c_size, float *buf, int b_size, int n){
         t.pause_rec("cpu");
 
         t.start_rec("comm");
-        t.start_rec("comm_t");
+        // t.start_rec("comm_t");
         // Transfer buffer of the process
-        MPI_Isend(buf, b_size, MPI_FLOAT, target_rank, in_pair_id, MPI_COMM_WORLD, &req_s);
+        // MPI_Isend(buf, b_size, MPI_FLOAT, target_rank, in_pair_id, MPI_COMM_WORLD, &req_s);
         MPI_Irecv(buf_t, b_t_size, MPI_FLOAT, target_rank, (!in_pair_id), MPI_COMM_WORLD, &req_r);
         MPI_Wait(&req_r, MPI_STATUS_IGNORE);
         t.pause_rec("comm");
-        t.pause_rec("comm_t");
+        // t.pause_rec("comm_t");
         // printf("Phase %d rank %d(as id %d, TR %d) has reccived[%d]: %f %f\n", 
         //         phase, rank, in_pair_id, target_rank, b_t_size, buf_t[0], buf_t[1]);
 
@@ -188,12 +195,12 @@ float* OESort(int rank, int c_size, float *buf, int b_size, int n){
         float *buf_m = merge_realc(buf, b_size, buf_t, b_t_size, in_pair_id, &is_change);
         t.pause_rec("cpu");
 
-        t.start_rec("comm");
-        t.start_rec("comm_r");
+        // t.start_rec("comm");
+        // t.start_rec("comm_r");
         // Sync and check whether the sort is done or not
-        MPI_Allreduce(&is_change, &is_all_change, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
-        t.pause_rec("comm");
-        t.pause_rec("comm_r");
+        // MPI_Allreduce(&is_change, &is_all_change, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
+        // t.pause_rec("comm");
+        // t.pause_rec("comm_r");
 
         t.start_rec("cpu");
         // Replace the old buffer with merged one
@@ -224,6 +231,7 @@ float* OESort(int rank, int c_size, float *buf, int b_size, int n){
 
 int main(int argc, char** argv) {
 	MPI_Init(&argc,&argv);
+    t.start_rec("exec");
     t.start_rec("total");
     t.start_rec("cpu");
 	int rank, size;
@@ -238,7 +246,7 @@ int main(int argc, char** argv) {
     t.pause_rec("cpu_mem");
     t.pause_rec("cpu");
 	
-    // t.disable();
+    if(argv[4] == NULL){t.disable();}
     (&t)->set_mpi_rank(rank)->set_mpi_comm_size(size)->set_mpi_show_rank(0)->enable_mpi();
 
     t.start_rec("io");
@@ -264,6 +272,7 @@ int main(int argc, char** argv) {
     t.pause_rec("io");
     t.pause_rec("io_w");
     t.pause_rec("total");
+    t.pause_rec("exec");
 
     t.reduce_rec("cpu");
     t.reduce_rec("cpu_sort");
@@ -273,23 +282,29 @@ int main(int argc, char** argv) {
     t.reduce_rec("io_r");
     t.reduce_rec("io_w");
     t.reduce_rec("comm");
-    t.reduce_rec("comm_t");
-    t.reduce_rec("comm_r");
+    // t.reduce_rec("comm_t");
+    // t.reduce_rec("comm_r");
     t.reduce_rec("total");
 
     // t.reduce_all();
-    // t.show_rec("cpu");
-    // t.show_rec("cpu_sort");
-    // t.show_rec("cpu_mem");
-    // t.show_rec("cpu_merg");
-    // t.show_rec("io");
-    // t.show_rec("io_r");
-    // t.show_rec("io_w");
-    // t.show_rec("comm");
-    // t.show_rec("comm_t");
-    // t.show_rec("comm_r");
-    // t.show_rec("total");
-    const char *order[4] = {"cpu", "cpu_sort", "cpu_mem", "cpu_merg"};
-    t.report(argv[4], order, 4);
+    if(argv[4] != NULL){
+        if(argv[4][0] == '!'){
+            t.show_rec("cpu");
+            t.show_rec("cpu_sort");
+            t.show_rec("cpu_mem");
+            t.show_rec("cpu_merg");
+            t.show_rec("io");
+            t.show_rec("io_r");
+            t.show_rec("io_w");
+            t.show_rec("comm");
+            // t.show_rec("comm_t");
+            // t.show_rec("comm_r");
+            t.show_rec("total");
+            t.show_rec("exec");
+        }else{
+            const char *order[10] = {"cpu", "cpu_sort", "cpu_mem", "cpu_merg", "io", "io_r", "io_w", "comm", "total", "exec"};
+            t.report(argv[4], order, 10);
+        }
+    }
 	MPI_Finalize();
 }

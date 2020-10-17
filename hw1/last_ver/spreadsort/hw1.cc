@@ -1,18 +1,19 @@
-#include <cstdio>
-#include <stdio.h>
+// #include <cstdio>
+// #include <stdio.h>
 #include <stdlib.h>
 // #include <iostream>
-#include <vector>
+// #include <vector>
 #include <mpi.h>
-#include <algorithm>
+// #include <algorithm>
 #include <boost/sort/spreadsort/spreadsort.hpp>
 
-void show_arr(float *a, int n){
-    for(int i = 0; i < n; i++){
-        printf("%f ", a[i]);
-    }
-    printf("\n");
-}
+# define EARLY_STOP_RATE 0.2
+// void show_arr(float *a, int n){
+//     for(int i = 0; i < n; i++){
+//         printf("%f ", a[i]);
+//     }
+//     printf("\n");
+// }
 
 // int rank: Current process rank
 // int c_size: COMM_WORLD size
@@ -48,10 +49,10 @@ int count_b_start(int rank, int c_size, int n){
     }
 }
 // if a > b, then return True for C++ sort
-int cmp_plus(const float a, const float b){
-    if(a < b){return 1;}
-    else{return 0;}
-}
+// int cmp_plus(const float a, const float b){
+//     if(a < b){return 1;}
+//     else{return 0;}
+// }
 
 // Merge and Reallocate
 // float *buf: The buf that current process has
@@ -141,24 +142,28 @@ float* OESort(int rank, int c_size, float *buf, int b_size, int n){
             in_pair_id = 1;
         }
         if(target_rank == -1){
-            MPI_Allreduce(&is_change, &is_all_change, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
+            if(phase >= (int)((float)phase * EARLY_STOP_RATE)){
+                MPI_Allreduce(&is_change, &is_all_change, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
+            }
             continue;
         }
 
         // Phase Sorting
         MPI_Request req_s, req_r;
+        MPI_Isend(buf, b_size, MPI_FLOAT, target_rank, in_pair_id, MPI_COMM_WORLD, &req_s);
         int b_t_size = count_b_size(target_rank, c_size, n);
         float *buf_t = (float*)malloc(sizeof(float) * b_t_size);
 
-        MPI_Isend(buf, b_size, MPI_FLOAT, target_rank, in_pair_id, MPI_COMM_WORLD, &req_s);
+        // MPI_Isend(buf, b_size, MPI_FLOAT, target_rank, in_pair_id, MPI_COMM_WORLD, &req_s);
         MPI_Irecv(buf_t, b_t_size, MPI_FLOAT, target_rank, (!in_pair_id), MPI_COMM_WORLD, &req_r);
-        
         MPI_Wait(&req_r, MPI_STATUS_IGNORE);
         // printf("Phase %d rank %d(as id %d, TR %d) has reccived[%d]: %f %f\n", 
         //         phase, rank, in_pair_id, target_rank, b_t_size, buf_t[0], buf_t[1]);
 
         float *buf_m = merge_realc(buf, b_size, buf_t, b_t_size, in_pair_id, &is_change);
-        MPI_Allreduce(&is_change, &is_all_change, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
+        if(phase >= (int)((float)phase * EARLY_STOP_RATE)){
+            MPI_Allreduce(&is_change, &is_all_change, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
+        }
         float *buf_d = buf;
         free(buf_d);
         buf = buf_m;
