@@ -91,6 +91,9 @@ float* OESort(int rank, int c_size, float *buf, int b_size, int n){
     // printf("rank %d has array[%d]: %f %f\n", rank, b_size, buf[0], buf[1]);
     // show_arr(buf, b_size);
     int is_all_change = 1;
+    int b_t_real_size = count_b_size(0, c_size, n);
+    float *buf_t = (float*)malloc(sizeof(float) * b_t_real_size);
+
     for(int phase = 0; phase <= c_size; phase++){
         // Check whether the target rank exist or not
         int target_rank = -1, in_pair_id = 0;
@@ -115,9 +118,8 @@ float* OESort(int rank, int c_size, float *buf, int b_size, int n){
         MPI_Request req_s, req_r;
         MPI_Isend(buf, b_size, MPI_FLOAT, target_rank, in_pair_id, MPI_COMM_WORLD, &req_s);
         int b_t_size = count_b_size(target_rank, c_size, n);
-        float *buf_t = (float*)malloc(sizeof(float) * b_t_size);
+        memset(buf_t, 0, b_t_real_size);
 
-        // MPI_Isend(buf, b_size, MPI_FLOAT, target_rank, in_pair_id, MPI_COMM_WORLD, &req_s);
         MPI_Irecv(buf_t, b_t_size, MPI_FLOAT, target_rank, (!in_pair_id), MPI_COMM_WORLD, &req_r);
         MPI_Wait(&req_r, MPI_STATUS_IGNORE);
         // printf("Phase %d rank %d(as id %d, TR %d) has reccived[%d]: %f %f\n", 
