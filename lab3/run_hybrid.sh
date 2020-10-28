@@ -1,7 +1,8 @@
 # !/bin/bash
 
+
 g++ ./sample/lab3_pthread.cc -o ./sample/lab3_pthread -pthread -lm
-g++ lab3_pthread.cc -o lab3_pthread -pthread -lm
+mpicc lab3_hybrid.cc -o lab3_hybrid -fopenmp -lm
 
 tc_n=5
 r=(10000, 1067212, 9183439, 1781232, 212125892, 1401149118)
@@ -22,9 +23,9 @@ for i in `seq 0 ${tc_n}`
 do
     echo -e "Testcase ${i}: r=${r[i]} k=${k[i]}"
 
-    res_std=`srun -c8 -n1 ./sample/lab3_pthread ${r[i]} ${k[i]}`
-    res_self=`srun -c8 -n1 ./lab3_pthread ${r[i]} ${k[i]}`
-    res_self_time=`time srun -c8 -n1 ./lab3_pthread ${r[i]} ${k[i]}`
+    res_std=`srun -c8 -n2 ./sample/lab3_pthread ${r[i]} ${k[i]}`
+    res_self=`srun -c8 -n2 ./lab3_hybrid ${r[i]} ${k[i]}`
+    res_self_time=`time srun -c8 -n1 ./lab3_hybrid ${r[i]} ${k[i]}`
     # res_self=res_self+1
 
     if [ $res_std -eq $res_self ]
