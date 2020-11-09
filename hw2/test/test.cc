@@ -140,6 +140,7 @@ void test_thread_pool(){
         submit((void (*)(void *))task_func, (void *)(&(tas[i])), pool);
     }
     submit_done(pool);
+    printf("Submit Done\n");
     end_pool(pool);
 
     int sum = 0;
