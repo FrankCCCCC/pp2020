@@ -7,6 +7,7 @@
 typedef struct task_arg{
     int a;
     int res;
+    int loops;
 }Task_Arg;
 
 void hard_test_queue(){
@@ -106,23 +107,36 @@ void easy_test_queue(){
 
 void task_func(void *arg){
     Task_Arg *argp = (Task_Arg *)(arg);
-    // printf("Thread %d: %d\n", pthread_self(), argp->a);
-    argp->res++;
+    int print_mod = 1000;
+    if(argp->a % print_mod == 0){
+        printf("Thread %d a: %d\n", pthread_self(), argp->a);
+    }
+    for(int i = 0; i < argp->loops; i++){
+        argp->res++;
+    }
+    if(argp->a % print_mod == 0){
+        printf("Thread %d loops: %d\n", pthread_self(), argp->res);
+    }
 }
 
 void test_thread_pool(){
-    ThreadPool *pool = create_thread_pool(50);
-    int task_num = 10000000;
+    ThreadPool *pool = create_thread_pool(12);
+    int total_tasks = 100000;
+    int loops = 1;
+    int task_num = total_tasks / loops;
+
     Task_Arg *tas = (Task_Arg*)malloc(sizeof(Task_Arg) * task_num);
     for(int i = 0; i < task_num/5; i++){
         tas[i].a = i;
         tas[i].res = 0;
+        tas[i].loops = loops;
         submit((void (*)(void *))task_func, (void *)(&(tas[i])), pool);
     }
     start_pool(pool);
     for(int i = task_num/5; i < task_num; i++){
         tas[i].a = i;
         tas[i].res = 0;
+        tas[i].loops = loops;
         submit((void (*)(void *))task_func, (void *)(&(tas[i])), pool);
     }
     submit_done(pool);
@@ -130,11 +144,13 @@ void test_thread_pool(){
 
     int sum = 0;
     for(int i = 0; i < task_num; i++){
-        assert(tas[i].res == 1);
+        assert(tas[i].res == loops);
         sum += tas[i].res;
     }
-    assert(sum == task_num);
-    printf("Sum: %d - Correct: %d\n", sum, task_num);
+    assert(sum == total_tasks);
+    printf("Sum: %d - Correct: %d\n", sum, total_tasks);
+
+
 }
 
 int main(int argc, char** argv){

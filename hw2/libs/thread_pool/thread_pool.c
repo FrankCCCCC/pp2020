@@ -22,6 +22,9 @@ int get_threads_num(ThreadPool* pool){
 int get_num_tasks(ThreadPool* pool){
     return get_q_size(pool->queue);
 }
+int is_task_queue_empty(ThreadPool* pool){
+    return is_q_empty(pool->queue);
+}
 int is_finish(ThreadPool* pool){
     return pool->is_finish;
 }
@@ -32,7 +35,10 @@ void submit(void (*func)(void *), void *arg, ThreadPool *pool){
     Task *new_task = (Task*)malloc(sizeof(Task));
     new_task->func = func;
     new_task->arg = arg;
+
+    pthread_mutex_lock(pool->lock);
     push(pool->queue, (void *)new_task);
+    pthread_mutex_unlock(pool->lock);
 }
 
 void submit_done(ThreadPool* pool){
@@ -53,14 +59,29 @@ void *worker(void *worker_arg_v){
     int thread_id = worker_arg->thread_id;
     printf("Thread %d Created(Self: %d)\n", thread_id, pthread_self());
     Task *task = NULL;
+    // int idle_count = 0;
 
     for(;(!is_submit_done(pool)) || (get_num_tasks(pool) > 0);){
-        pthread_mutex_lock(pool->lock);
-        if(get_num_tasks(pool) > 0){
-            task = get_task(pool);
+        int is_has_task = 0;
+
+        if(pthread_mutex_trylock(pool->lock) == 0){
+            if(get_num_tasks(pool) > 0){
+                task = get_task(pool);
+                is_has_task = 1;
+                // idle_count = 0;
+            }
+            pthread_mutex_unlock(pool->lock);
+        }
+        // else{
+        //     idle_count++;
+        // }
+        if(is_has_task){
             task->func(task->arg);
         }
-        pthread_mutex_unlock(pool->lock);
+
+        // if(idle_count > 1000){
+        //     printf("Thread %d Idling\n", thread_id);
+        // }
     }
 
     pthread_exit(NULL);
@@ -87,15 +108,19 @@ void end_pool(ThreadPool* pool){
 
 // Reset the task queue, is_finish flag, and is_submit_done flag
 void resest_pool(ThreadPool* pool){
-    free(pool->queue);
-    pool->is_finish = 0;
-    pool->is_submit_done = 0;
+    if(pool->is_finish){
+        free(pool->queue);
+        pool->is_finish = 0;
+        pool->is_submit_done = 0;
+    }
 }
 
 // Free the whole ThreadPool object
 void free_pool(ThreadPool* pool){
-    free(pool->threads);
-    free(pool->queue);
-    free(pool->lock);
-    free(pool);
+    if(pool->is_finish){
+        free(pool->threads);
+        free(pool->queue);
+        free(pool->lock);
+        free(pool);
+    }
 }
