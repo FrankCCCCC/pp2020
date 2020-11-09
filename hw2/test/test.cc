@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "../thread_pool/thread_pool.h"
+#include "../libs/thread_pool/thread_pool.h"
+#include "../libs/queue/queue.h"
 
 typedef struct task_arg{
     int a;
@@ -12,8 +13,9 @@ void task_func(void *arg){
 }
 
 int main(int argc, char** argv){
+    ThreadPool *pool = create_thread_pool();
     Task_Arg ta;
     ta.a = 0;
-    submit((void (*)(void *))task_func, (void *)(&ta));
+    submit((void (*)(void *))task_func, (void *)(&ta), pool);
     return 0;
 }

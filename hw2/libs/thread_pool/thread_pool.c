@@ -4,3 +4,4 @@
 void submit(void (*func)(void *), void *args, ThreadPool *pool){
     func(args);
 }
+
