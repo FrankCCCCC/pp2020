@@ -1,5 +1,5 @@
 // Doubly Linked List Queue
-// #include <stdio.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct node{
@@ -15,6 +15,7 @@ typedef struct queue{
 }Queue;
 
 Queue *create_queue();
+int is_q_empty(Queue *);
+int get_q_size(Queue *);
 void push(Queue *, void *);
-Node *pop(Queue *);
-int is_empty(Queue *);
+void *pop(Queue *);

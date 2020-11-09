@@ -1,23 +1,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <sys/queue.h>
+#include "../queue/queue.h"
 
 typedef struct task{
     void (*func)(void *);
-    void *args;
+    void *arg;
 }Task;
 
 typedef struct{
     pthread_t *threads;
-    
+    Queue *queue;
+    pthread_mutex_t *lock;
     int threads_num;
-    int queue_size;
+    int is_submit_done;
     int is_finish;
 }ThreadPool;
 
-ThreadPool *create_thread_pool();
-void submit(void (*func)(void *), void *, ThreadPool *);
-void worker(Task *);
-void start_pool(ThreadPool *);
-void end_pool(ThreadPool *);
+typedef struct{
+    ThreadPool *pool;
+    int thread_id;
+}WorkerArg;
+
+ThreadPool *create_thread_pool(int);
+void set_threads_num(ThreadPool*, int);
+int get_threads_num(ThreadPool*);
+int get_num_tasks(ThreadPool*);
+int is_finish(ThreadPool*);
+void submit(void (*func)(void*), void*, ThreadPool*);
+void submit_done(ThreadPool*);
+int is_submit_done(ThreadPool*);
+Task *get_task(ThreadPool*);
+void *worker(void*);
+void start_pool(ThreadPool*);
+void end_pool(ThreadPool*);
+void resest_pool(ThreadPool*);
+void free_pool(ThreadPool*);
