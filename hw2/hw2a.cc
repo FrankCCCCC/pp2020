@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xmmintrin.h>
+#include <emmintrin.h>
 
 void write_png(const char* filename, int iters, int width, int height, const int* buffer) {
     FILE* fp = fopen(filename, "wb");
@@ -46,7 +48,49 @@ void write_png(const char* filename, int iters, int width, int height, const int
     fclose(fp);
 }
 
-int core_cal(int iters, double x0, double y0){
+void core_cal_vec(int iters, double *x0, double *y0, int *image, int size){
+    int vec_scale = 1;
+    int vec_gap = 1 << vec_scale;
+    int size_vec = (size >> vec_scale) << vec_scale;
+    const double zero_vec[2] = {0, 0};
+    const double two_vec[2] = {2, 2};
+    const __m128d zerov = _mm_loadu_pd(&(zero_vec[0]));
+    const __m128d twov = _mm_loadu_pd(&(two_vec[0]));
+
+    for(int i = 0; i < size_vec; i+=vec_gap){
+        __m128d x0v = _mm_loadu_pd(&(x0[i]));
+        __m128d y0v = _mm_loadu_pd(&(y0[i]));
+
+        __m128d xv = _mm_loadu_pd(&(zero_vec[0]));
+        __m128d yv = _mm_loadu_pd(&(zero_vec[0]));
+        __m128d length_squaredv = _mm_loadu_pd(&(zero_vec[0]));
+        while(1){
+            __m128d tempv = zerov;
+            tempv = _mm_add_pd(_mm_sub_pd(_mm_mul_pd(xv, xv), _mm_mul_pd(yv, yv)), x0v) ;
+            yv = _mm_add_pd(_mm_mul_pd(twov, _mm_mul_pd(xv, yv)), y0v);
+            xv = tempv;
+            length_squaredv = _mm_add_pd(_mm_mul_pd(xv, xv), _mm_mul_pd(yv, yv));
+        }   
+    }
+
+    for(int i = size_vec; i < size; i++){
+        int repeats = 0;
+        double x = 0;
+        double y = 0;
+        double length_squared = 0;
+        while (repeats < iters && length_squared < 4) {
+            double temp = x * x - y * y + x0[i];
+            y = 2 * x * y + y0[i];
+            x = temp;
+            length_squared = x * x + y * y;
+            ++repeats;
+        }
+
+        *image = repeats;
+    }
+}
+
+void core_cal(int iters, double x0, double y0, int *image){
     int repeats = 0;
     double x = 0;
     double y = 0;
@@ -59,7 +103,7 @@ int core_cal(int iters, double x0, double y0){
         ++repeats;
     }
 
-    return repeats;
+    *image = repeats;
 }
 
 int main(int argc, char** argv) {
@@ -89,18 +133,21 @@ int main(int argc, char** argv) {
         for (int i = 0; i < width; ++i) {
             double x0 = i * ((right - left) / width) + left;
 
-            int repeats = 0;
-            double x = 0;
-            double y = 0;
-            double length_squared = 0;
-            while (repeats < iters && length_squared < 4) {
-                double temp = x * x - y * y + x0;
-                y = 2 * x * y + y0;
-                x = temp;
-                length_squared = x * x + y * y;
-                ++repeats;
-            }
-            image[j * width + i] = repeats;
+            core_cal(iters, x0, y0, &(image[j * width + i]));
+            // int repeats = 0;
+            // double x = 0;
+            // double y = 0;
+            // double length_squared = 0;
+            // while (repeats < iters && length_squared < 4) {
+            //     double temp = x * x - y * y + x0;
+            //     y = 2 * x * y + y0;
+            //     x = temp;
+            //     length_squared = x * x + y * y;
+            //     ++repeats;
+            // }
+            // image[j * width + i] = repeats;
+
+
         }
     }
 

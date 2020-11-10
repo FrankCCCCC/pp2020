@@ -1,0 +1,1 @@
+srun ./execs/hw2a ./out/hw2a.png 1000 -2 2 -2 2 400 400
