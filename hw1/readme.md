@@ -20,7 +20,7 @@ I use Non-Blocking message pass operation to pass the segment to another. It mea
 # Performance
 
 ## Speed Up
-The algorithm is faster than the sequential one in about 1.45 times.
+The algorithm is faster than the sequential one in about 1.45 times at most.
 ![speedup](img/speedup.png)
 
 ## The Percentage of Each Part of Execution Time
@@ -31,5 +31,14 @@ The algorithm is faster than the sequential one in about 1.45 times.
 
 ![percentage](img/percentage.png)
 
+# Run The DEMO
+
+You can clone this repo and check the followong commands
+
+```
+cd hw1
+make
+mpirun -np 4 ./hw1 11183 ./testcases/20.in ./hw1.out
+```
 
 <!-- Note: The SOTA version is under last_ver/no_stop.  -->
