@@ -11,3 +11,10 @@ https://blog.csdn.net/tissar/article/details/86978743
 
 Vectorize: 
 https://www.itread01.com/content/1543605307.html
+https://www.cs.virginia.edu/~cr4bd/3330/S2018/simdref.html
+
+Optimizing Mandelbrot Set
+https://stackoverflow.com/questions/44354589/optimizing-mandelbrot-fractal
+
+Intel Instruction Guide
+https://software.intel.com/sites/landingpage/IntrinsicsGuide/
