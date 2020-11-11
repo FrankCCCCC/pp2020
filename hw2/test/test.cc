@@ -3,6 +3,7 @@
 #include <assert.h>
 #include "../libs/thread_pool/thread_pool.h"
 // #include "../libs/queue/queue.h"
+#include "../libs/pd128/pd128.h"
 
 typedef struct task_arg{
     int a;
@@ -160,7 +161,32 @@ int main(int argc, char** argv){
     // easy_test_queue();
 
     // ThreadPool Testing
-    test_thread_pool();
+    // test_thread_pool();
+
+    // PD128 Testing
+    double x_v[2] = {0, 0};
+    double y_v[2] = {1, 1};
+    PD128 x = PD128(x_v);
+    PD128 y = PD128(y_v);
+    x.print();
+    x.load(y_v);
+    x.print();
+    
+
+    __m128d k = _mm_cmpeq_pd(x.m128d(), y.m128d());
+    unsigned long int k_d[2] = {0, 0};
+    _mm_store_pd((double *)k_d, k);
+    printf("K_d: %lu %lu\n", k_d[0], k_d[1]);
+
+    (x == y).print_int();
+
+
+    // double a = 1.0, b = 1.0;
+    // if(a || b){
+    //     printf("Y\n");
+    // }else{
+    //     printf("N\n");
+    // }
 
     return 0;
 }

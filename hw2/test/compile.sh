@@ -1,1 +1,2 @@
-g++ ./test/test.cc ./libs/thread_pool/thread_pool.h ./libs/thread_pool/thread_pool.c ./libs/queue/queue.h ./libs/queue/queue.c -o ./execs/test -lm -pthread
+# !/bin/bash
+g++ ./test/test.cc ./libs/thread_pool/thread_pool.h ./libs/thread_pool/thread_pool.c ./libs/queue/queue.h ./libs/queue/queue.c ./libs/pd128/pd128.h ./libs/pd128/pd128.c -o ./execs/test -O3 -lm -pthread
