@@ -2,6 +2,8 @@
 
 # Implementation
 
+Here is the [code](hw1.cc)
+
 ## The Sorting Algorithm
 I use the  Spread Sort of Boost library for local sorting. The Spread Sort is a novel hybrid radix sort algorithm. The time complexity given by the Boost official documentation is min(N logN, N key_length)(Note: N is the length of the sequence to be sorted). 
 
@@ -15,4 +17,19 @@ For each process, just read/write the segment that it needs to handle.
 #### Non-Blocking Message Passing: 
 I use Non-Blocking message pass operation to pass the segment to another. It means that for each process it  would send the segment it has to the target process without waiting.
 
-Note: The SOTA version is under last_ver/no_stop. 
+# Performance
+
+## Speed Up
+The algorithm is faster than the sequential one in about 1.45 times.
+![speedup](img/speedup.png)
+
+## The Percentage of Each Part of Execution Time
+3 Parts
+1. CPU Execution Time = cpu_sort + cpu_merge + cpu_memory
+2. I/O Execution Time = I/O_read + I/O_write
+3. Communication Time
+
+![percentage](img/percentage.png)
+
+
+<!-- Note: The SOTA version is under last_ver/no_stop.  -->
