@@ -12,20 +12,9 @@
 #include <immintrin.h>
 #include <time.h>
 
-// #include "libs/thread_pool/thread_pool.h"
+#include "libs/thread_pool/thread_pool.h"
 
 int cpu_num = 0;
-int iters = 0;
-double left = 0;
-double right = 0;
-double lower = 0;
-double upper = 0;
-int width = 0;
-int height = 0;
-int area = 0;
-int *image = NULL;
-double *x0s = NULL;
-double *y0s = NULL;
 
 const int vec_scale = 1;
 const int vec_gap = 1 << vec_scale;
@@ -62,7 +51,6 @@ void write_png(const char* filename, int iters, int width, int height, const int
     png_set_compression_level(png_ptr, 1);
     size_t row_size = 3 * width * sizeof(png_byte);
     png_bytep row = (png_bytep)malloc(row_size);
-    int s_time = clock();
     for (int y = 0; y < height; ++y) {
         memset(row, 0, row_size);
         for (int x = 0; x < width; ++x) {
@@ -79,8 +67,6 @@ void write_png(const char* filename, int iters, int width, int height, const int
         }
         png_write_row(png_ptr, row);
     }
-    int e_time = clock();
-    printf("Pixel Calculate Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
     free(row);
     png_write_end(png_ptr, NULL);
     png_destroy_write_struct(&png_ptr, &info_ptr);
@@ -124,7 +110,7 @@ void core_cal_sse2_sig(double *x0, double *y0, int *image){
     // printf("Iters %d, (%d, %d) <- (%lf, %lf)\n", count, image[i], image[i + 1], image_temp[0], image_temp[1]);
 }
 
-void core_cal(double x0, double y0, int *image){
+void core_cal(int iters, double x0, double y0, int *image){
     int repeats = 0;
     double x = 0;
     double y = 0;
@@ -140,49 +126,14 @@ void core_cal(double x0, double y0, int *image){
     *image = repeats;
 }
 
-void core_cal_sse2(int ps, int size){
+void core_cal_sse2(int iters, double *x0, double *y0, int *image, int size){
     const int size_vec = (size >> vec_scale) << vec_scale;
-    const int max_loop_vec = ps + size_vec;
-    const int max_loop = ps + size;
-    for(int i = ps; i < max_loop_vec; i+=vec_gap){
-        core_cal_sse2_sig(&(x0s[i]), &(y0s[i]), &(image[i]));
+    for(int i = 0; i < size_vec; i+=vec_gap){
+        core_cal_sse2_sig(&(x0[i]), &(y0[i]), &(image[i]));
     }
 
-    for(int i = max_loop_vec; i < max_loop; i++){
-        core_cal(x0s[i], y0s[i], &(image[i]));
-    }
-}
-
-// Task Queue
-typedef struct Task{
-    int ps;
-    int size;
-}Task;
-typedef struct Task_Queue{
-    int size;
-    int head;
-    Task *queue;
-}Task_Queue;
-Task_Queue *create_queue(int size){
-    Task_Queue *q = (Task_Queue*)malloc(sizeof(Task_Queue)); 
-    q->queue = (Task*)malloc(sizeof(Task) * size);
-    q->head = 0;
-    q->size = size;
-    return q;
-}
-int is_empty(Task_Queue *q){return q->head == 0;}
-int size(Task_Queue *q){return q->size;}
-void push(Task t, Task_Queue *q){
-    q->queue[q->head] = t;
-    q->size++;
-}
-Task *pop(Task_Queue *q){
-    if(is_empty(q)){
-        return NULL;    
-    }else{
-        int p = q->head;
-        q->head--;
-        return &(q->queue[p]);
+    for(int i = size_vec; i < size; i++){
+        core_cal(iters, x0[i], y0[i], &(image[i]));
     }
 }
 
@@ -205,7 +156,7 @@ void make_T_Task_Arg(T_Task_Arg *arg, int iters, double *x0, double *y0, int *im
 
 void thread_task(void *arg){
     T_Task_Arg *args = (T_Task_Arg*)arg;
-    // core_cal_sse2(args->iters, args->x0, args->y0, args->image, args->size);
+    core_cal_sse2(args->iters, args->x0, args->y0, args->image, args->size);
 }
 
 int main(int argc, char** argv) {
@@ -219,26 +170,26 @@ int main(int argc, char** argv) {
     /* argument parsing */
     assert(argc == 9);
     const char* filename = argv[1];
-    iters = strtol(argv[2], 0, 10);
-    left = strtod(argv[3], 0);
-    right = strtod(argv[4], 0);
-    lower = strtod(argv[5], 0);
-    upper = strtod(argv[6], 0);
-    width = strtol(argv[7], 0, 10);
-    height = strtol(argv[8], 0, 10);
-    area = width * height;
+    int iters = strtol(argv[2], 0, 10);
+    double left = strtod(argv[3], 0);
+    double right = strtod(argv[4], 0);
+    double lower = strtod(argv[5], 0);
+    double upper = strtod(argv[6], 0);
+    int width = strtol(argv[7], 0, 10);
+    int height = strtol(argv[8], 0, 10);
+    const long int area = width * height;
 
     assign_iters_vec(iters);
 
     /* allocate memory for image */
-    image = (int*)malloc(area * sizeof(int));
+    int* image = (int*)malloc(width * height * sizeof(int));
     assert(image);
 
-    // ThreadPool *pool = create_thread_pool(cpu_num);
+    ThreadPool *pool = create_thread_pool(cpu_num);
     T_Task_Arg *tasks_arr = (T_Task_Arg*)malloc(sizeof(T_Task_Arg) * area);
 
-    x0s = (double*)malloc(sizeof(double) * area);
-    y0s = (double*)malloc(sizeof(double) * area);
+    double *x0s = (double*)malloc(sizeof(double) * area);
+    double *y0s = (double*)malloc(sizeof(double) * area);
     /* mandelbrot set */
     clock_t s_time = clock();
     for (int j = 0; j < height; ++j) {
@@ -254,21 +205,18 @@ int main(int argc, char** argv) {
 
             // if(serial_id == cpu_num * cpu_num){start_pool(pool);}
 
-            // make_T_Task_Arg(&(tasks_arr[serial_id]), iters, &(x0s[serial_id]), &(y0s[serial_id]), &(image[serial_id]), 4);
-            // submit((void (*)(void *))thread_task, (void *)(&(tasks_arr[serial_id])), pool);
+            make_T_Task_Arg(&(tasks_arr[serial_id]), iters, &(x0s[serial_id]), &(y0s[serial_id]), &(image[serial_id]), 4);
+            submit((void (*)(void *))thread_task, (void *)(&(tasks_arr[serial_id])), pool);
         }
     }
     clock_t e_time = clock();
     printf("Tasks Submit Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
     s_time = clock();
-    // start_pool(pool);
-    // submit_done(pool);
-    
-    // core_cal_sse2(0, 50);
-    // core_cal_sse2(50, 60);
-    // core_cal_sse2(110, area);
-    core_cal_sse2(0, area);
-    // end_pool(pool);
+    start_pool(pool);
+    submit_done(pool);
+    // printf("x0s y0s Done\n");
+    // core_cal_sse2(iters, x0s, y0s, image, area);
+    end_pool(pool);
     e_time = clock();
     printf("Execution Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
     free(tasks_arr);
@@ -276,9 +224,6 @@ int main(int argc, char** argv) {
     free(y0s);
 
     /* draw and cleanup */
-    s_time = clock();
     write_png(filename, iters, width, height, image);
-    e_time = clock();
-    printf("I/O Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
     free(image);
 }

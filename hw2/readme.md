@@ -18,3 +18,12 @@ https://stackoverflow.com/questions/44354589/optimizing-mandelbrot-fractal
 
 Intel Instruction Guide
 https://software.intel.com/sites/landingpage/IntrinsicsGuide/
+
+OMP
+https://kheresy.wordpress.com/2006/09/15/%E7%B0%A1%E6%98%93%E7%9A%84%E7%A8%8B%E5%BC%8F%E5%B9%B3%E8%A1%8C%E5%8C%96%EF%BC%8Dopenmp%EF%BC%88%E5%9B%9B%EF%BC%89%E7%AF%84%E4%BE%8B-for/
+
+ASK:
+1. Support AVX512, or 256/512 bits vectorize instructions?
+
+
+OMP dynamic guide

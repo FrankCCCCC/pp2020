@@ -57,15 +57,15 @@ void *worker(void *worker_arg_v){
     WorkerArg *worker_arg = (WorkerArg*)worker_arg_v;
     ThreadPool *pool = worker_arg->pool;
     int thread_id = worker_arg->thread_id;
-    printf("Thread %d Created(Self: %d)\n", thread_id, pthread_self());
+    // printf("Thread %d Created(Self: %d)\n", thread_id, pthread_self());
     Task *task = NULL;
     // int idle_count = 0;
 
-    for(;(!is_submit_done(pool)) || (get_num_tasks(pool) > 0);){
+    for(;(!is_submit_done(pool)) || (!is_task_queue_empty(pool));){
         int is_has_task = 0;
 
         if(pthread_mutex_trylock(pool->lock) == 0){
-            if(get_num_tasks(pool) > 0){
+            if(!is_task_queue_empty(pool)){
                 task = get_task(pool);
                 is_has_task = 1;
                 // idle_count = 0;
