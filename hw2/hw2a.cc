@@ -11,9 +11,13 @@
 #include <emmintrin.h>
 #include <immintrin.h>
 #include <time.h>
+#include <pthread.h>
 
 // #include "libs/thread_pool/thread_pool.h"
 
+#define CHUNK_SIZE 128
+
+// Global Variables of Mandlebrot Set Calculation
 int cpu_num = 0;
 int iters = 0;
 double left = 0;
@@ -27,6 +31,11 @@ int *image = NULL;
 double *x0s = NULL;
 double *y0s = NULL;
 
+// Global Variables of Writing PNG 
+int row_size = 0;
+png_bytep raw_img = NULL;
+
+// Vectorize Constant
 const int vec_scale = 1;
 const int vec_gap = 1 << vec_scale;
 const double zero_vec[2] = {0};
@@ -47,6 +56,27 @@ void assign_iters_vec(int iters){
     itersv = _mm_loadu_pd(iters_vec);
 }
 
+void png_write_sig(int x, int y){
+    int p = image[(height - 1 - y) * width + x];
+    png_bytep color = &(raw_img[row_size * y]) + x * 3;
+    if (p != iters) {
+        if (p & 16) {
+            color[0] = 240;
+            color[1] = color[2] = p % 16 * 16;
+        } else {
+            color[0] = p % 16 * 16;
+        }
+    }
+}
+
+void image_to_png(int ps, int size){
+    for(int i = ps; i < ps + size; i++){
+        int x = i % width;
+        int y = (height - 1 - (i / width));
+        png_write_sig(x, y);
+    }
+}
+
 void write_png(const char* filename, int iters, int width, int height, const int* buffer) {
     FILE* fp = fopen(filename, "wb");
     assert(fp);
@@ -60,28 +90,10 @@ void write_png(const char* filename, int iters, int width, int height, const int
     png_set_filter(png_ptr, 0, PNG_NO_FILTERS);
     png_write_info(png_ptr, info_ptr);
     png_set_compression_level(png_ptr, 1);
-    size_t row_size = 3 * width * sizeof(png_byte);
-    png_bytep row = (png_bytep)malloc(row_size);
-    int s_time = clock();
+    
     for (int y = 0; y < height; ++y) {
-        memset(row, 0, row_size);
-        for (int x = 0; x < width; ++x) {
-            int p = buffer[(height - 1 - y) * width + x];
-            png_bytep color = row + x * 3;
-            if (p != iters) {
-                if (p & 16) {
-                    color[0] = 240;
-                    color[1] = color[2] = p % 16 * 16;
-                } else {
-                    color[0] = p % 16 * 16;
-                }
-            }
-        }
-        png_write_row(png_ptr, row);
+        png_write_row(png_ptr, &(raw_img[row_size * y]));
     }
-    int e_time = clock();
-    printf("Pixel Calculate Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
-    free(row);
     png_write_end(png_ptr, NULL);
     png_destroy_write_struct(&png_ptr, &info_ptr);
     fclose(fp);
@@ -151,6 +163,8 @@ void core_cal_sse2(int ps, int size){
     for(int i = max_loop_vec; i < max_loop; i++){
         core_cal(x0s[i], y0s[i], &(image[i]));
     }
+
+    image_to_png(ps, size);
 }
 
 // Task Queue
@@ -171,42 +185,64 @@ Task_Queue *create_queue(int size){
     return q;
 }
 int is_empty(Task_Queue *q){return q->head == 0;}
+int is_full(Task_Queue *q){return q->head < q->size;}
 int size(Task_Queue *q){return q->size;}
-void push(Task t, Task_Queue *q){
-    q->queue[q->head] = t;
-    q->size++;
+int push(Task t, Task_Queue *q){
+    if(is_full(q)){
+        q->queue[q->head++] = t;
+        // q->head++;
+        return 1;
+    }else{
+        printf("Queue is Full\n");
+        return 0;
+    }
 }
 Task *pop(Task_Queue *q){
     if(is_empty(q)){
         return NULL;    
     }else{
-        int p = q->head;
-        q->head--;
-        return &(q->queue[p]);
+        // q->head--;
+        return &(q->queue[--q->head]);
     }
 }
 
-typedef struct {
-    // int id;
-    int iters;
-    double *x0;
-    double *y0;
-    int *image;
-    int size;
-}T_Task_Arg;
 
-void make_T_Task_Arg(T_Task_Arg *arg, int iters, double *x0, double *y0, int *image, int size){
-    arg->iters = iters;
-    arg->x0 = x0;
-    arg->y0 = y0;
-    arg->image = image;
-    arg->size = size;
+typedef struct{
+    pthread_t *threads;
+    Task_Queue *queue;
+    pthread_mutex_t *lock;
+    int threads_num;
+    // int is_submit_done;
+    int is_finish;
+}ThreadPool;
+
+typedef struct{
+    ThreadPool *pool;
+    int thread_id;
+}WorkerArg;
+
+ThreadPool *create_thread_pool(int, Task_Queue*);
+int get_num_tasks(ThreadPool*);
+int is_task_queue_empty(ThreadPool*);
+void *worker(void*);
+void start_pool(ThreadPool*);
+void end_pool(ThreadPool*);
+
+void make_task(int ps, int size, Task_Queue *queue){
+    Task t;
+    t.ps = ps;
+    t.size = size;
+    // printf("Pushed Task: ps %d, size %d\n", t.ps, t.size);
+    push(t, queue);
 }
 
-void thread_task(void *arg){
-    T_Task_Arg *args = (T_Task_Arg*)arg;
-    // core_cal_sse2(args->iters, args->x0, args->y0, args->image, args->size);
+void thread_task_func(Task *t){
+    // Task *t = (Task*)t;
+    if(t == NULL){printf("NULL Task\n");}
+    // printf("Task PS: %d, Size: %d\n", t->ps, t->size);
+    core_cal_sse2(t->ps, t->size);
 }
+
 
 int main(int argc, char** argv) {
     // printf("HI, hw2 is running\n");
@@ -214,7 +250,7 @@ int main(int argc, char** argv) {
     cpu_set_t cpu_set;
     sched_getaffinity(0, sizeof(cpu_set), &cpu_set);
     cpu_num = CPU_COUNT(&cpu_set);
-    // printf("%d cpus available\n", cpu_num);
+    printf("%d cpus available\n", cpu_num);
 
     /* argument parsing */
     assert(argc == 9);
@@ -227,58 +263,142 @@ int main(int argc, char** argv) {
     width = strtol(argv[7], 0, 10);
     height = strtol(argv[8], 0, 10);
     area = width * height;
-
     assign_iters_vec(iters);
 
     /* allocate memory for image */
     image = (int*)malloc(area * sizeof(int));
     assert(image);
 
-    // ThreadPool *pool = create_thread_pool(cpu_num);
-    T_Task_Arg *tasks_arr = (T_Task_Arg*)malloc(sizeof(T_Task_Arg) * area);
+    // allocate for png
+    row_size = 3 * width * sizeof(png_byte);
+    raw_img = (png_bytep)malloc(3 * width * sizeof(png_byte) * height);
 
     x0s = (double*)malloc(sizeof(double) * area);
     y0s = (double*)malloc(sizeof(double) * area);
     /* mandelbrot set */
-    clock_t s_time = clock();
+    // clock_t s_time = clock();
     for (int j = 0; j < height; ++j) {
         double y0 = j * ((upper - lower) / height) + lower;
         for (int i = 0; i < width; ++i) {
             double x0 = i * ((right - left) / width) + left;
 
-            // core_cal_float(iters, x0, y0, &(image[j * width + i]));
-            // core_cal(iters, x0, y0, &(image[j * width + i]));
             int serial_id = j * width + i;
             x0s[serial_id] = x0;
             y0s[serial_id] = y0;
 
             // if(serial_id == cpu_num * cpu_num){start_pool(pool);}
-
-            // make_T_Task_Arg(&(tasks_arr[serial_id]), iters, &(x0s[serial_id]), &(y0s[serial_id]), &(image[serial_id]), 4);
-            // submit((void (*)(void *))thread_task, (void *)(&(tasks_arr[serial_id])), pool);
         }
     }
-    clock_t e_time = clock();
-    printf("Tasks Submit Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
-    s_time = clock();
-    // start_pool(pool);
-    // submit_done(pool);
+    // clock_t e_time = clock();
+    // printf("Tasks Submit Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
+
+    // s_time = clock();
+    Task_Queue *tq = create_queue(area);
+    int idx = 0;
+    for(idx = 0; idx < area; idx+=CHUNK_SIZE){
+        make_task(idx, CHUNK_SIZE, tq);
+    }
+    make_task(idx, area - idx, tq);
+
+    ThreadPool *pool = create_thread_pool(cpu_num, tq);
+    start_pool(pool);
+    end_pool(pool);
+    // core_cal_sse2(0, 200);
+    // core_cal_sse2(200, 200);
+    // core_cal_sse2(400, 250);
+    // core_cal_sse2(450, 100);
+    // core_cal_sse2(550, area);
     
-    // core_cal_sse2(0, 50);
-    // core_cal_sse2(50, 60);
-    // core_cal_sse2(110, area);
-    core_cal_sse2(0, area);
-    // end_pool(pool);
-    e_time = clock();
-    printf("Execution Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
-    free(tasks_arr);
-    free(x0s);
-    free(y0s);
+    // e_time = clock();
+    // printf("Execution Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
 
     /* draw and cleanup */
-    s_time = clock();
+    // s_time = clock();
     write_png(filename, iters, width, height, image);
-    e_time = clock();
-    printf("I/O Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
-    free(image);
+    // e_time = clock();
+    // printf("I/O Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
+
+    // free(image);
+    // free(raw_img);
+    // free(x0s);
+    // free(y0s);
+}
+
+ThreadPool *create_thread_pool(int threads_num, Task_Queue *queue){
+    ThreadPool *pool = (ThreadPool *)malloc(sizeof(ThreadPool));
+    pool->threads = NULL;
+    pool->queue = queue;
+    pool->lock = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t));
+    pthread_mutex_init(pool->lock, NULL);
+    pool->threads_num = threads_num;
+    pool->is_finish = 0;
+
+    return pool;
+}
+
+int get_threads_num(ThreadPool* pool){
+    return pool->threads_num;
+}
+int get_num_tasks(ThreadPool* pool){
+    return size(pool->queue);
+}
+int is_task_queue_empty(ThreadPool* pool){
+    return is_empty(pool->queue);
+}
+
+void *worker(void *worker_arg_v){
+    WorkerArg *worker_arg = (WorkerArg*)worker_arg_v;
+    ThreadPool *pool = worker_arg->pool;
+    int thread_id = worker_arg->thread_id;
+    // printf("Thread %d Created(Self: %d)\n", thread_id, pthread_self());
+    Task *task = NULL;
+    // int idle_count = 0;
+
+    for(;(!pool->is_finish) || (!is_task_queue_empty(pool));){
+        int is_has_task = 0;
+
+        if(pthread_mutex_trylock(pool->lock) == 0){
+            if(!is_task_queue_empty(pool)){
+                // printf("Thread %d Getting Task\n", thread_id);
+                task = pop(pool->queue);
+                is_has_task = 1;
+                // if(task == NULL){printf("Thread %d Task NULL\n", thread_id);}
+                // else{printf("Thread %d Task PS: %d, Size: %d\n", thread_id, task->ps, task->size);}
+                // idle_count = 0;
+            }
+            pthread_mutex_unlock(pool->lock);
+        }
+        // else{
+        //     idle_count++;
+        // }
+        if(is_has_task){
+            // printf("Thread %d Exec Task\n", thread_id);
+            thread_task_func(task);
+        }
+
+        // if(idle_count > 1000){
+        //     printf("Thread %d Idling\n", thread_id);
+        // }
+    }
+
+    pthread_exit(NULL);
+}
+
+// Create and start the threads
+void start_pool(ThreadPool* pool){
+    pool->threads = (pthread_t*)malloc(sizeof(pthread_t) * get_threads_num(pool));
+    WorkerArg *worker_args = (WorkerArg*)malloc(sizeof(WorkerArg) * get_threads_num(pool));
+    for(int i = 0; i < get_threads_num(pool); i++){
+        worker_args[i].pool = pool;
+        worker_args[i].thread_id = i;
+        pthread_create(&(pool->threads[i]), NULL, worker, (void*)(&(worker_args[i])));
+    }
+}
+
+// Join the threads
+void end_pool(ThreadPool* pool){
+    pool->is_finish = 1;
+    for(int i = 0; i < get_threads_num(pool); i++){
+        pthread_join(pool->threads[i], NULL);
+    }
 }
