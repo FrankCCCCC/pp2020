@@ -13,8 +13,7 @@
 #include <time.h>
 #include <pthread.h>
 
-// Hyperparameter 
-int CHUNK_SIZE = 128;
+#define CHUNK_SIZE 128
 
 // Global Variables of Mandlebrot Set Calculation
 int cpu_num = 0;
@@ -42,13 +41,6 @@ const double one_vec[2] = {1};
 const double two_vec[2] = {2, 2};
 const double four_vec[2] = {4, 4};
 double iters_vec[2] = {0};
-double lowers_vec[2] = {0};
-double lefts_vec[2] = {0};
-double x_pix_ratio_vec[2] = {0};
-double y_pix_ratio_vec[2] = {0};
-
-double x_pix_ratio = 0;
-double y_pix_ratio = 0;
 
 const __m128d zerov = _mm_loadu_pd(zero_vec);
 const __m128d onev = _mm_loadu_pd(one_vec);
@@ -56,75 +48,24 @@ const __m128d twov = _mm_loadu_pd(two_vec);
 const __m128d fourv = _mm_loadu_pd(four_vec);
 const __m128d fullv = _mm_or_pd(onev, onev);
 __m128d itersv = _mm_loadu_pd(zero_vec);
-__m128d lowersv = _mm_loadu_pd(zero_vec);
-__m128d leftsv = _mm_loadu_pd(zero_vec);
-__m128d x_pix_ratiosv = _mm_loadu_pd(zero_vec);
-__m128d y_pix_ratiosv = _mm_loadu_pd(zero_vec);
-
-void set_chunk_size(){
-    int squ = cpu_num * cpu_num;
-    if(squ % 2 || squ <= 1){
-        CHUNK_SIZE = squ + 1;
-    }else{
-        CHUNK_SIZE = squ;
-    }
-
-    // if(squ <= 1){
-    //     CHUNK_SIZE = 2;
-    // }else if(squ % 2){
-    //     CHUNK_SIZE = squ + 1;
-    // }else{
-    //     CHUNK_SIZE = squ;
-    // }
-}
 
 void assign_iters_vec(int iters){
-    // Iters
     iters_vec[0] = (double)iters; iters_vec[1] = (double)iters;
     itersv = _mm_loadu_pd(iters_vec);
-
-    // lower
-    lowers_vec[0] = lowers_vec[1] = lower;
-    lowersv = _mm_loadu_pd(lowers_vec);
-
-    // left
-    lefts_vec[0] = lefts_vec[1] = left;
-    leftsv = _mm_loadu_pd(lefts_vec);
-
-    // X, Y Pixels Ratio
-    x_pix_ratio = ((right - left) / width);
-    y_pix_ratio = ((upper - lower) / height);
-    x_pix_ratio_vec[0] = x_pix_ratio_vec[1] = x_pix_ratio;
-    y_pix_ratio_vec[0] = y_pix_ratio_vec[1] = y_pix_ratio;
-    x_pix_ratiosv = _mm_loadu_pd(x_pix_ratio_vec);
-    y_pix_ratiosv = _mm_loadu_pd(y_pix_ratio_vec);
 }
 
-void assign_x0s_y0s_sig(int ps){
-    const double is_vec[2] = {(double)(ps % width), (double)((ps + 1) % width)};
-    const double js_vec[2] = {(double)(ps / width), (double)((ps + 1) / width)};
+void assign_x0s_y0s(){
+	for (int j = 0; j < height; ++j) {
+        double y0 = j * ((upper - lower) / height) + lower;
+        for (int i = 0; i < width; ++i) {
+            double x0 = i * ((right - left) / width) + left;
 
-    __m128d isv = _mm_loadu_pd(is_vec);
-    __m128d jsv = _mm_loadu_pd(js_vec);
-
-    _mm_store_pd(&(x0s[ps]), _mm_add_pd(_mm_mul_pd(isv, x_pix_ratiosv), leftsv));
-    _mm_store_pd(&(y0s[ps]), _mm_add_pd(_mm_mul_pd(jsv, y_pix_ratiosv), lowersv));
+            int serial_id = j * width + i;
+            x0s[serial_id] = x0;
+            y0s[serial_id] = y0;
+        }
+    }
 }
-
-// void assign_x0s_y0s(){
-// 	for (int j = 0; j < height; ++j) {
-//         double y0 = j * y_pix_ratio + lower;
-//         // double y0 = j * ((upper - lower) / height) + lower;
-//         for (int i = 0; i < width; ++i) {
-//             double x0 = i * x_pix_ratio + left;
-//             // double x0 = i * ((right - left) / width) + left;
-
-//             int serial_id = j * width + i;
-//             x0s[serial_id] = x0;
-//             y0s[serial_id] = y0;
-//         }
-//     }
-// }
 
 void png_write_sig(int x, int y){
     int p = image[(height - 1 - y) * width + x];
@@ -224,9 +165,7 @@ void core_cal_sse2(int ps, int size){
     const int size_vec = (size >> vec_scale) << vec_scale;
     const int max_loop_vec = ps + size_vec;
     const int max_loop = ps + size;
-
     for(int i = ps; i < max_loop_vec; i+=vec_gap){
-        assign_x0s_y0s_sig(i);
         core_cal_sse2_sig(&(x0s[i]), &(y0s[i]), &(image[i]));
     }
 
@@ -237,9 +176,6 @@ void core_cal_sse2(int ps, int size){
     image_to_png(ps, size);
 }
 
-void core_cal_check(int ps, int size){
-    
-}
 // Task Queue
 typedef struct Task{
     int ps;
@@ -346,16 +282,13 @@ int main(int argc, char** argv) {
     x0s = (double*)malloc(sizeof(double) * area);
     y0s = (double*)malloc(sizeof(double) * area);
 
-    // Set CHUNK_SIZE
-    set_chunk_size();
-
     /* mandelbrot set */
     // clock_t s_time = clock();
+    assign_x0s_y0s();
     // clock_t e_time = clock();
     // printf("Tasks Submit Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
 
     // s_time = clock();
-
     // Submit Tasks
     Task_Queue *tq = create_queue(area / CHUNK_SIZE + 1);
     int idx = 0;

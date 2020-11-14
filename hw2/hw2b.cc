@@ -6,7 +6,10 @@
 #include <immintrin.h>
 #include <mpi.h>
 
-#define CHUNK_SIZE 128
+#define PROC_CHUNK_SIZE 128
+#define MASTER_RANK 0
+#define WORKING_TAG 1
+#define DONE_TAG 0
 
 // Global Variables of Mandlebrot Set Calculation
 int cpu_num = 0;
@@ -34,6 +37,13 @@ const double one_vec[2] = {1};
 const double two_vec[2] = {2, 2};
 const double four_vec[2] = {4, 4};
 double iters_vec[2] = {0};
+double lowers_vec[2] = {0};
+double lefts_vec[2] = {0};
+double x_pix_ratio_vec[2] = {0};
+double y_pix_ratio_vec[2] = {0};
+
+double x_pix_ratio = 0;
+double y_pix_ratio = 0;
 
 const __m128d zerov = _mm_loadu_pd(zero_vec);
 const __m128d onev = _mm_loadu_pd(one_vec);
@@ -41,23 +51,42 @@ const __m128d twov = _mm_loadu_pd(two_vec);
 const __m128d fourv = _mm_loadu_pd(four_vec);
 const __m128d fullv = _mm_or_pd(onev, onev);
 __m128d itersv = _mm_loadu_pd(zero_vec);
+__m128d lowersv = _mm_loadu_pd(zero_vec);
+__m128d leftsv = _mm_loadu_pd(zero_vec);
+__m128d x_pix_ratiosv = _mm_loadu_pd(zero_vec);
+__m128d y_pix_ratiosv = _mm_loadu_pd(zero_vec);
 
 void assign_iters_vec(int iters){
+    // Iters
     iters_vec[0] = (double)iters; iters_vec[1] = (double)iters;
     itersv = _mm_loadu_pd(iters_vec);
+
+    // lower
+    lowers_vec[0] = lowers_vec[1] = lower;
+    lowersv = _mm_loadu_pd(lowers_vec);
+
+    // left
+    lefts_vec[0] = lefts_vec[1] = left;
+    leftsv = _mm_loadu_pd(lefts_vec);
+
+    // X, Y Pixels Ratio
+    x_pix_ratio = ((right - left) / width);
+    y_pix_ratio = ((upper - lower) / height);
+    x_pix_ratio_vec[0] = x_pix_ratio_vec[1] = x_pix_ratio;
+    y_pix_ratio_vec[0] = y_pix_ratio_vec[1] = y_pix_ratio;
+    x_pix_ratiosv = _mm_loadu_pd(x_pix_ratio_vec);
+    y_pix_ratiosv = _mm_loadu_pd(y_pix_ratio_vec);
 }
 
-void assign_x0s_y0s(){
-	for (int j = 0; j < height; ++j) {
-        double y0 = j * ((upper - lower) / height) + lower;
-        for (int i = 0; i < width; ++i) {
-            double x0 = i * ((right - left) / width) + left;
+void assign_x0s_y0s_sig(int ps){
+    const double is_vec[2] = {(double)(ps % width), (double)((ps + 1) % width)};
+    const double js_vec[2] = {(double)(ps / width), (double)((ps + 1) / width)};
 
-            int serial_id = j * width + i;
-            x0s[serial_id] = x0;
-            y0s[serial_id] = y0;
-        }
-    }
+    __m128d isv = _mm_loadu_pd(is_vec);
+    __m128d jsv = _mm_loadu_pd(js_vec);
+
+    _mm_store_pd(&(x0s[ps]), _mm_add_pd(_mm_mul_pd(isv, x_pix_ratiosv), leftsv));
+    _mm_store_pd(&(y0s[ps]), _mm_add_pd(_mm_mul_pd(jsv, y_pix_ratiosv), lowersv));
 }
 
 void png_write_sig(int x, int y){
@@ -158,7 +187,9 @@ void core_cal_sse2(int ps, int size){
     const int size_vec = (size >> vec_scale) << vec_scale;
     const int max_loop_vec = ps + size_vec;
     const int max_loop = ps + size;
+
     for(int i = ps; i < max_loop_vec; i+=vec_gap){
+        assign_x0s_y0s_sig(i);
         core_cal_sse2_sig(&(x0s[i]), &(y0s[i]), &(image[i]));
     }
 
@@ -169,11 +200,15 @@ void core_cal_sse2(int ps, int size){
     image_to_png(ps, size);
 }
 
+void master(int, int);
+
+void slave(int, int);
+
 int main(int argc, char** argv) {
 	MPI_Init(&argc,&argv);
-	int rank, size;
+	int rank, comm_size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
 
 	/* argument parsing */
     assert(argc == 9);
@@ -202,15 +237,78 @@ int main(int argc, char** argv) {
     y0s = (double*)malloc(sizeof(double) * area);
 
     /* mandelbrot set */
-    assign_x0s_y0s();
+	// core_cal_sse2(0, area);
 
-	// Task_Queue *tq = create_queue(area / CHUNK_SIZE + 1);
-    // int idx = 0;
-    // for(idx = 0; idx + CHUNK_SIZE < area; idx+=CHUNK_SIZE){
-    //     make_task(idx, CHUNK_SIZE, tq);
-    // }
-    // make_task(idx, area - idx, tq);
+	if(rank == MASTER_RANK){
+		master(rank, comm_size);
+	}else{
+		slave(rank, comm_size);
+	}
 
-    
+	/* draw and cleanup */
+    write_png(filename, iters, width, height, image);
+
     MPI_Finalize();
+}
+
+int assign_task(int *ps_size, int *ps_p){
+	ps_size[0] = *ps_p;
+	if(*ps_p >= area){return 0;}
+
+	if(*ps_p + PROC_CHUNK_SIZE >= area){
+		ps_size[1] = area - *ps_p;
+		*ps_p = area;
+	}else{
+		ps_size[1] = PROC_CHUNK_SIZE;
+		*ps_p += PROC_CHUNK_SIZE;
+	}
+	return 1;
+}
+
+void master(int rank, int comm_size){
+	// Send the first task
+	int ps_p = 0;
+	int dum_p = 0;
+	MPI_Status status;
+	for(int i = 1; i < comm_size; i++){
+		int ps_size[2] = {0};
+		if(!assign_task(ps_size, &ps_p)){break;}
+		MPI_Send(ps_size, 2, MPI_INT, i, WORKING_TAG, MPI_COMM_WORLD);
+	}
+	// Receive results and dispatch new task
+	for(;;){
+		MPI_Recv(&dum_p, 1, MPI_INT, MPI_ANY_SOURCE, WORKING_TAG, MPI_COMM_WORLD, &status);
+
+		int ps_size[2] = {0};
+		if(!assign_task(ps_size, &ps_p)){break;}
+		MPI_Send(ps_size, 2, MPI_INT, status.MPI_SOURCE, WORKING_TAG, MPI_COMM_WORLD);
+	}
+
+	// Terminate
+	for(int i = 1; i < comm_size; i++){
+		int ps = 0;
+		MPI_Send(&ps, 1, MPI_INT, i, DONE_TAG, MPI_COMM_WORLD);
+	}
+
+	// All Reduce
+	MPI_Reduce(MPI_IN_PLACE, (unsigned int *)raw_img, row_size * height / sizeof(unsigned int), MPI_UNSIGNED, MPI_BOR, MASTER_RANK, MPI_COMM_WORLD);
+}
+
+void slave(int rank, int comm_size){
+	int ps_size[2] = {0};
+	int dum_p = 0;
+	MPI_Status status;
+	for(;;){
+		MPI_Recv(ps_size, 2, MPI_INT, MASTER_RANK, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+		if(status.MPI_TAG == DONE_TAG){
+			break;
+		}
+
+		core_cal_sse2(ps_size[0], ps_size[1]);
+		MPI_Send(&dum_p, 1, MPI_INT, MASTER_RANK, WORKING_TAG, MPI_COMM_WORLD);
+	}
+
+	// All Reduce
+	MPI_Reduce((unsigned int *)raw_img, (unsigned int *)raw_img, row_size * height / sizeof(unsigned int), MPI_UNSIGNED, MPI_BOR, MASTER_RANK, MPI_COMM_WORLD);
 }
