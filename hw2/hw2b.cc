@@ -1,17 +1,10 @@
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-#define PNG_NO_SETJMP
-#include <sched.h>
-#include <assert.h>
-#include <png.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <png.h>
+#include <assert.h>
 #include <emmintrin.h>
 #include <immintrin.h>
-#include <time.h>
-#include <pthread.h>
+#include <mpi.h>
 
 #define CHUNK_SIZE 128
 
@@ -176,87 +169,13 @@ void core_cal_sse2(int ps, int size){
     image_to_png(ps, size);
 }
 
-// Task Queue
-typedef struct Task{
-    int ps;
-    int size;
-}Task;
-typedef struct Task_Queue{
-    int size;
-    int head;
-    Task *queue;
-}Task_Queue;
-Task_Queue *create_queue(int size){
-    Task_Queue *q = (Task_Queue*)malloc(sizeof(Task_Queue)); 
-    q->queue = (Task*)malloc(sizeof(Task) * size);
-    q->head = 0;
-    q->size = size;
-    return q;
-}
-int is_empty(Task_Queue *q){return q->head == 0;}
-int is_full(Task_Queue *q){return q->head < q->size;}
-int size(Task_Queue *q){return q->size;}
-int push(Task t, Task_Queue *q){
-    if(is_full(q)){
-        q->queue[q->head++] = t;
-        return 1;
-    }else{
-        return 0;
-    }
-}
-Task *pop(Task_Queue *q){
-    if(is_empty(q)){
-        return NULL;    
-    }else{
-        return &(q->queue[--q->head]);
-    }
-}
-
-
-typedef struct{
-    pthread_t *threads;
-    Task_Queue *queue;
-    pthread_mutex_t *lock;
-    int threads_num;
-    // int is_submit_done;
-    int is_finish;
-}ThreadPool;
-
-typedef struct{
-    ThreadPool *pool;
-    int thread_id;
-}WorkerArg;
-
-ThreadPool *create_thread_pool(int, Task_Queue*);
-int get_num_tasks(ThreadPool*);
-int is_task_queue_empty(ThreadPool*);
-void *worker(void*);
-void start_pool(ThreadPool*);
-void end_pool(ThreadPool*);
-
-void make_task(int ps, int size, Task_Queue *queue){
-    Task t;
-    t.ps = ps;
-    t.size = size;
-    // printf("Pushed Task: ps %d, size %d\n", t.ps, t.size);
-    push(t, queue);
-}
-
-void thread_task_func(Task *t){
-    // printf("Task PS: %d, Size: %d\n", t->ps, t->size);
-    core_cal_sse2(t->ps, t->size);
-}
-
-
 int main(int argc, char** argv) {
-    // printf("HI, hw2 is running\n");
-    /* detect how many CPUs are available */
-    cpu_set_t cpu_set;
-    sched_getaffinity(0, sizeof(cpu_set), &cpu_set);
-    cpu_num = CPU_COUNT(&cpu_set);
-    // printf("%d cpus available\n", cpu_num);
+	MPI_Init(&argc,&argv);
+	int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    /* argument parsing */
+	/* argument parsing */
     assert(argc == 9);
     const char* filename = argv[1];
     iters = strtol(argv[2], 0, 10);
@@ -283,119 +202,15 @@ int main(int argc, char** argv) {
     y0s = (double*)malloc(sizeof(double) * area);
 
     /* mandelbrot set */
-    // clock_t s_time = clock();
     assign_x0s_y0s();
-    // clock_t e_time = clock();
-    // printf("Tasks Submit Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
 
-    // s_time = clock();
-    // Submit Tasks
-    Task_Queue *tq = create_queue(area / CHUNK_SIZE + 1);
-    int idx = 0;
-    for(idx = 0; idx + CHUNK_SIZE < area; idx+=CHUNK_SIZE){
-        make_task(idx, CHUNK_SIZE, tq);
-    }
-    make_task(idx, area - idx, tq);
+	// Task_Queue *tq = create_queue(area / CHUNK_SIZE + 1);
+    // int idx = 0;
+    // for(idx = 0; idx + CHUNK_SIZE < area; idx+=CHUNK_SIZE){
+    //     make_task(idx, CHUNK_SIZE, tq);
+    // }
+    // make_task(idx, area - idx, tq);
 
-    ThreadPool *pool = create_thread_pool(cpu_num, tq);
-    start_pool(pool);
-    end_pool(pool);
-
-    // core_cal_sse2(0, 200);
-    // core_cal_sse2(200, 200);
-    // core_cal_sse2(400, 50);
-    // core_cal_sse2(450, 200);
-    // core_cal_sse2(650, area - 650);
-    // core_cal_sse2(0, area);
     
-    // e_time = clock();
-    // printf("Execution Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
-
-    /* draw and cleanup */
-    // s_time = clock();
-    write_png(filename, iters, width, height, image);
-    // e_time = clock();
-    // printf("I/O Time %lf\n", ((double) (e_time - s_time)) * 1000 / CLOCKS_PER_SEC);
-
-    // free(image);
-    // free(raw_img);
-    // free(x0s);
-    // free(y0s);
-}
-
-ThreadPool *create_thread_pool(int threads_num, Task_Queue *queue){
-    ThreadPool *pool = (ThreadPool *)malloc(sizeof(ThreadPool));
-    pool->threads = NULL;
-    pool->queue = queue;
-    pool->lock = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t));
-    pthread_mutex_init(pool->lock, NULL);
-    pool->threads_num = threads_num;
-    pool->is_finish = 0;
-
-    return pool;
-}
-
-int get_threads_num(ThreadPool* pool){
-    return pool->threads_num;
-}
-int get_num_tasks(ThreadPool* pool){
-    return size(pool->queue);
-}
-int is_task_queue_empty(ThreadPool* pool){
-    return is_empty(pool->queue);
-}
-
-void *worker(void *worker_arg_v){
-    WorkerArg *worker_arg = (WorkerArg*)worker_arg_v;
-    ThreadPool *pool = worker_arg->pool;
-    int thread_id = worker_arg->thread_id;
-    // printf("Thread %d Created(Self: %d)\n", thread_id, pthread_self());
-    Task *task = NULL;
-    // int idle_count = 0;
-
-    for(;(!pool->is_finish) || (!is_task_queue_empty(pool));){
-        int is_has_task = 0;
-
-        if(pthread_mutex_trylock(pool->lock) == 0){
-            if(!is_task_queue_empty(pool)){
-                // printf("Thread %d Getting Task\n", thread_id);
-                task = pop(pool->queue);
-                is_has_task = 1;
-                // idle_count = 0;
-            }
-            pthread_mutex_unlock(pool->lock);
-        }
-        // else{
-        //     idle_count++;
-        // }
-        if(is_has_task){
-            // printf("Thread %d Exec Task\n", thread_id);
-            thread_task_func(task);
-        }
-
-        // if(idle_count > 1000){
-        //     printf("Thread %d Idling\n", thread_id);
-        // }
-    }
-
-    pthread_exit(NULL);
-}
-
-// Create and start the threads
-void start_pool(ThreadPool* pool){
-    pool->threads = (pthread_t*)malloc(sizeof(pthread_t) * get_threads_num(pool));
-    WorkerArg *worker_args = (WorkerArg*)malloc(sizeof(WorkerArg) * get_threads_num(pool));
-    for(int i = 0; i < get_threads_num(pool); i++){
-        worker_args[i].pool = pool;
-        worker_args[i].thread_id = i;
-        pthread_create(&(pool->threads[i]), NULL, worker, (void*)(&(worker_args[i])));
-    }
-}
-
-// Join the threads
-void end_pool(ThreadPool* pool){
-    pool->is_finish = 1;
-    for(int i = 0; i < get_threads_num(pool); i++){
-        pthread_join(pool->threads[i], NULL);
-    }
+    MPI_Finalize();
 }
