@@ -18,7 +18,7 @@ if [ "$1" = "hw2a" ]; then
 elif [ "$1" = "hw2b" ]; then 
     target="hw2b"
     runner="srun"
-    runner_params='-n2 -c2'
+    runner_params='-n4 -c4'
 else
     echo -e "Please specify the tareget file 'hw2a' or 'hw2b'"
     exit 1
