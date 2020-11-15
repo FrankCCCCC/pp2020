@@ -18,7 +18,7 @@ if [ "$1" = "hw2a" ]; then
 elif [ "$1" = "hw2b" ]; then 
     target="hw2b"
     runner="srun"
-    runner_params='-n4 -c4'
+    runner_params='-n8 -c6'
 else
     echo -e "Please specify the tareget file 'hw2a' or 'hw2b'"
     exit 1
@@ -27,7 +27,7 @@ fi
 # Output Files
 out_dir="./out/${target}"
 out="_tc"
-tc_num=5
+tc_num=6
 mkdir ${out_dir}
 
 # Remove Old Files
@@ -54,7 +54,8 @@ params=('2602 -3 0.2 -3 0.2 979 2355' \
         '3000 -1 1 -1 1 1600 1600' \
         '18667 -2 2 -2 2 575 575'  \
         '10000 -5 6 -7 8 56 78' \
-        '5000 -5 6 -3 4 1600 1600'
+        '5000 -5 6 -3 4 1600 1600'\
+        '174170376 -0.7894722222222222 -0.7825277777777778 0.145046875 0.148953125 2549 1439'
         )
 
 echo -e "----------------------------------------"

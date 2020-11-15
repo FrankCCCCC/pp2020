@@ -33,9 +33,3 @@ Scoreboard & Spec
 https://docs.google.com/document/d/1fJasbjKBzn0p9a-oITdf3GCBukCHvToklc1eX15Bd94/edit
 https://apollo.cs.nthu.edu.tw/pp20/scoreboard/hw2a/
 https://apollo.cs.nthu.edu.tw/pp20/scoreboard/hw2b/
-
-ASK:
-1. Support AVX512, or 256/512 bits vectorize instructions?
-
-
-OMP dynamic guide

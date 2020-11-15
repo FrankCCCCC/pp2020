@@ -9,10 +9,15 @@
 #include <omp.h>
 #include <pthread.h>
 
-#define PROC_CHUNK_SIZE 512
+// #include <time.h>
+
 #define MASTER_RANK 0
 #define WORKING_TAG 1
 #define DONE_TAG 0
+
+// Hyperparameters
+int PROC_CHUNK_SIZE = 512;
+int PROC_CHUNK_SIZE_DEC = 0;
 
 // Global Variables of Mandlebrot Set Calculation
 int cpu_num = 0;
@@ -28,7 +33,7 @@ int *image = NULL;
 double *x0s = NULL;
 double *y0s = NULL;
 
-int *checks = NULL;
+// int *checks = NULL;
 
 // Global Variables of Writing PNG 
 int row_size = 0;
@@ -75,6 +80,14 @@ __m128d lowersv = _mm_loadu_pd(zero_vec);
 __m128d leftsv = _mm_loadu_pd(zero_vec);
 __m128d x_pix_ratiosv = _mm_loadu_pd(zero_vec);
 __m128d y_pix_ratiosv = _mm_loadu_pd(zero_vec);
+
+void set_chunk_size(){
+    int upper = (area / (cpu_num * comm_size * cpu_num * comm_size));
+    PROC_CHUNK_SIZE = ((upper * 2) >> 1) << 1;
+    if(PROC_CHUNK_SIZE <= 0){PROC_CHUNK_SIZE = 2;}
+    // PROC_CHUNK_SIZE_DEC = (PROC_CHUNK_SIZE * PROC_CHUNK_SIZE) / (2 * area);
+    // printf("PROC_CHUNK_SIZE %d\n", PROC_CHUNK_SIZE);
+}
 
 void assign_iters_vec(int iters){
     // Iters
@@ -123,11 +136,15 @@ void png_write_sig(int x, int y){
 }
 
 void image_to_png_omp(int ps, int size){
-    #pragma omp for schedule(guided) nowait
-    for(int i = ps; i < ps + size; i++){
-        int x = i % width;
-        int y = (height - 1 - (i / width));
-        png_write_sig(x, y);
+    // const int omp_chunk_size = ((size / (cpu_num * cpu_num)) << 1);
+    #pragma omp parallel num_threads(cpu_num)
+    {
+        #pragma omp for schedule(guided) nowait
+        for(int i = ps; i < ps + size; i++){
+            int x = i % width;
+            int y = (height - 1 - (i / width));
+            png_write_sig(x, y);
+        }
     }
 }
 
@@ -208,11 +225,15 @@ void core_cal_sse2_omp(int ps, int size){
     const int size_vec = (size >> vec_scale) << vec_scale;
     const int max_loop_vec = ps + size_vec;
     const int max_loop = ps + size;
+    const int omp_chunk_size = ((size / (cpu_num * cpu_num)) << 1);
 
-    #pragma omp for schedule(guided) nowait
-    for(int i = ps; i < max_loop_vec; i+=vec_gap){
-        assign_x0s_y0s_sig(i);
-        core_cal_sse2_sig(&(x0s[i]), &(y0s[i]), &(image[i]));
+    #pragma omp parallel num_threads(cpu_num)
+    {
+        #pragma omp for schedule(guided) nowait
+        for(int i = ps; i < max_loop_vec; i+=vec_gap){
+            assign_x0s_y0s_sig(i);
+            core_cal_sse2_sig(&(x0s[i]), &(y0s[i]), &(image[i]));
+        }
     }
 
     for(int i = max_loop_vec; i < max_loop; i++){
@@ -222,44 +243,13 @@ void core_cal_sse2_omp(int ps, int size){
     image_to_png_omp(ps, size);
 }
 
-void check(){
-    int ps = 0, size = area;
-    const int size_vec = (size >> vec_scale) << vec_scale;
-    const int max_loop_vec = ps + size_vec;
-    const int max_loop = ps + size;
-
-    for(int i = ps; i < max_loop_vec; i+=vec_gap){
-        assign_x0s_y0s_sig(i);
-        core_cal_sse2_sig(&(x0s[i]), &(y0s[i]), &(checks[i]));
-    }
-
-    for(int i = max_loop_vec; i < max_loop; i++){
-        core_cal(x0s[i], y0s[i], &(checks[i]));
-    }
-
-    // image_to_png(ps, size);
-
-    for(int i = ps; i < ps + size; i++){
-        if(image[i] != checks[i]){printf("Check Error[%d] (Check, Image) (%d, %d)\n", i, checks[i], image[i]);}
-    }
-}
-
 int assign_task(int *);
 
-MasterThreadArg *assign_thread_args(pthread_mutex_t*, int);
+void master();
 
-void master_thread_task_init(void*);
-
-void *master_thread_task_loop(void*);
-
-void join_threads(pthread_t*, int);
-
-void master(int, int);
-
-void slave(int, int);
+void slave();
 
 int main(int argc, char** argv) {
-	// MPI_Init(&argc,&argv);
     int provided;
     MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -282,12 +272,13 @@ int main(int argc, char** argv) {
     height = strtol(argv[8], 0, 10);
     area = width * height;
     assign_iters_vec(iters);
+    set_chunk_size();
 
     /* allocate memory for image */
     image = (int*)malloc(area * sizeof(int));
     memset(image, 0, area * sizeof(int));
     assert(image);
-    checks = (int*)malloc(area * sizeof(int));
+    // checks = (int*)malloc(area * sizeof(int));
 
     // allocate for png
     row_size = 3 * width * sizeof(png_byte);
@@ -298,19 +289,22 @@ int main(int argc, char** argv) {
     y0s = (double*)malloc(sizeof(double) * area);
 
     /* mandelbrot set */
-	// core_cal_sse2(0, area);
-
 	if(rank == MASTER_RANK){
-		master(rank, comm_size);
+		master();
 
         /* draw and cleanup */
         write_png(filename, iters, width, height, image);
 	}else{
-		slave(rank, comm_size);
+		slave();
 	}
 
     MPI_Finalize();
 }
+
+// void  update_PROC_CHUNK_SIZE(){
+//     PROC_CHUNK_SIZE -= PROC_CHUNK_SIZE_DEC;
+//     if(PROC_CHUNK_SIZE <= 1){PROC_CHUNK_SIZE = 2;}
+// }
 
 int assign_task(int *ps_size){
 	ps_size[0] = ps_p;
@@ -323,103 +317,43 @@ int assign_task(int *ps_size){
 		ps_size[1] = PROC_CHUNK_SIZE;
 		ps_p += PROC_CHUNK_SIZE;
 	}
+    // update_PROC_CHUNK_SIZE();
 	return 1;
 }
 
-MasterThreadArg *assign_thread_args(pthread_mutex_t *lock, int threads_num){
-    MasterThreadArg *args = (MasterThreadArg*)malloc(sizeof(MasterThreadArg) * threads_num);
-    for(int i = 0; i < threads_num; i++){
-        args[i].lock = lock;
-        args[i].thread_id = i;
-        args[i].threads_num = threads_num;
-    }
-    return args;
-}
-
-void master_thread_task_init(void *arg){
-    MasterThreadArg *arg_mt = (MasterThreadArg*)arg;
-    int thread_id = arg_mt->thread_id;
-    int threads_num = arg_mt->threads_num;
-    pthread_mutex_t* lock = arg_mt->lock;
-    MPI_Request req;
-    for(int i = 1 + thread_id; i < comm_size; i+=threads_num){
-		int ps_size[2] = {0};
-        
-        pthread_mutex_lock(lock);
-		int is_get_task = assign_task(ps_size);
-        if(!is_get_task){not_recv_task++;}
-        pthread_mutex_unlock(lock);
-
-        if(!is_get_task){break;}
-
-		MPI_Isend(ps_size, 2, MPI_INT, i, WORKING_TAG, MPI_COMM_WORLD, &req);       
-	}
-
-    pthread_exit(NULL);
-}
-
-void *master_thread_task_loop(void *arg){
-    MasterThreadArg *arg_mt = (MasterThreadArg*)arg;
-    pthread_mutex_t* lock = arg_mt->lock;
-    int dum_p = 0;
-    MPI_Status status;
-    MPI_Request req;
-    for(;;){
-        int ps_size[2] = {0};
-
-        pthread_mutex_lock(&g_lock);
-		int is_get_task = assign_task(ps_size);
-        pthread_mutex_unlock(&g_lock);
-
-        if(!is_get_task){break;}
-
-		MPI_Recv(&dum_p, 1, MPI_INT, MPI_ANY_SOURCE, WORKING_TAG, MPI_COMM_WORLD, &status);
-		MPI_Isend(ps_size, 2, MPI_INT, status.MPI_SOURCE, WORKING_TAG, MPI_COMM_WORLD, &req);
-	}
-
-    pthread_exit(NULL);
-}
-
-void join_threads(pthread_t *threads, int threads_num){
-    for(int i = 0; i < threads_num; i++){
-        pthread_join(threads[i], NULL);
-    }
-}
-
-void master(int rank, int comm_size){
-	// Send the first task
-	int ps_p = 0;
+void *master_thread_task_comm(void *arg){
+    MasterThreadArg *mt_arg = (MasterThreadArg*)arg;
+    int ps_p = 0;
     int not_recv_task = 0;
     int dum_p = 0;
 	MPI_Status status;
     MPI_Request req;
 
-    int threads_num = cpu_num;
-    pthread_t* threads = (pthread_t*)malloc(sizeof(pthread_t) * threads_num);
-    pthread_mutex_t *lock = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t));
-    pthread_mutex_init(lock, NULL);
-    pthread_mutex_init(&g_lock, NULL);
-    MasterThreadArg * threads_args= assign_thread_args(lock, threads_num);
-
-    // Assign 1 task to each Slave
-	for(int i = 1; i < comm_size; i++){
-		int ps_size[2] = {0};
-		if(!assign_task(ps_size)){break;}
-		MPI_Isend(ps_size, 2, MPI_INT, i, WORKING_TAG, MPI_COMM_WORLD, &req);
-        not_recv_task++;
-	}
+    // Send the first task
+    pthread_mutex_lock(mt_arg->lock);
+    for(int tkq = 0; tkq < 3; tkq++){
+        for(int i = 1; i < comm_size; i++){
+            int ps_size[2] = {0};
+            int is_get_task = assign_task(ps_size);        
+            if(!is_get_task){break;}
+            MPI_Isend(ps_size, 2, MPI_INT, i, WORKING_TAG, MPI_COMM_WORLD, &req);
+            not_recv_task++;
+        }
+    }
+    pthread_mutex_unlock(mt_arg->lock);
 
 	// Receive results and dispatch new task
 	for(;;){
         int ps_size[2] = {0};
-		if(!assign_task(ps_size)){break;}
+        pthread_mutex_lock(mt_arg->lock);
+		int is_get_task = assign_task(ps_size);
+        pthread_mutex_unlock(mt_arg->lock);
+
+        if(!is_get_task){break;}
 
 		MPI_Recv(&dum_p, 1, MPI_INT, MPI_ANY_SOURCE, WORKING_TAG, MPI_COMM_WORLD, &status);
 		MPI_Isend(ps_size, 2, MPI_INT, status.MPI_SOURCE, WORKING_TAG, MPI_COMM_WORLD, &req);
 	}
-    // for(int i = 0; i < threads_num; i++){
-    //     pthread_create(&(threads[i]), NULL, master_thread_task_loop, (void*)(&(threads_args[i])));
-    // }
 
     // Recieve the remaining tasks
     for(;not_recv_task > 0;){
@@ -433,14 +367,37 @@ void master(int rank, int comm_size){
 		MPI_Isend(&ps, 1, MPI_INT, i, DONE_TAG, MPI_COMM_WORLD, &req);
 	}
 
-	// Reduce
-	// MPI_Reduce(MPI_IN_PLACE, image, area, MPI_INT, MPI_BOR, MASTER_RANK, MPI_COMM_WORLD);
-    MPI_Reduce(MPI_IN_PLACE, (unsigned int*)raw_img, row_size * height / sizeof(unsigned int), MPI_UNSIGNED, MPI_BOR, MASTER_RANK, MPI_COMM_WORLD);
-    // check();
-    // image_to_png(0, area);
+    pthread_exit(NULL);
 }
 
-void slave(int rank, int comm_size){
+void master(){
+    pthread_t* comm_thread = (pthread_t*)malloc(sizeof(pthread_t));
+    pthread_mutex_t *lock = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t));
+    MasterThreadArg *arg = (MasterThreadArg*)malloc(sizeof(MasterThreadArg));
+    pthread_mutex_init(lock, NULL);
+    arg->lock = lock;
+    arg->thread_id = 0;
+    arg->threads_num = 1;
+
+    pthread_create(comm_thread, NULL, master_thread_task_comm, (void*)(arg));
+    
+    for(;;){
+        int ps_size[2] = {0};
+        pthread_mutex_lock(arg->lock);
+        int is_get_task = assign_task(ps_size);
+        pthread_mutex_unlock(arg->lock);
+
+        if(!is_get_task){break;}
+        core_cal_sse2_omp(ps_size[0], ps_size[1]);
+    }
+
+    pthread_join(*comm_thread, NULL);
+
+	// Reduce
+    MPI_Reduce(MPI_IN_PLACE, (unsigned int*)raw_img, row_size * height / sizeof(unsigned int), MPI_UNSIGNED, MPI_BOR, MASTER_RANK, MPI_COMM_WORLD);
+}
+
+void slave(){
 	int ps_size[2] = {0};
 	int dum_p = 0;
 	MPI_Status status;
@@ -454,10 +411,10 @@ void slave(int rank, int comm_size){
 		}
 
 		core_cal_sse2_omp(ps_size[0], ps_size[1]);
+
 		MPI_Isend(&dum_p, 1, MPI_INT, MASTER_RANK, WORKING_TAG, MPI_COMM_WORLD, &req);
 	}
 
 	// Reduce
-	// MPI_Reduce(image, image, area, MPI_INT, MPI_BOR, MASTER_RANK, MPI_COMM_WORLD);
     MPI_Reduce((unsigned int*)raw_img, (unsigned int*)raw_img, row_size * height / sizeof(unsigned int), MPI_UNSIGNED, MPI_BOR, MASTER_RANK, MPI_COMM_WORLD);
 }
