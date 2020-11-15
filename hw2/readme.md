@@ -33,3 +33,6 @@ Scoreboard & Spec
 https://docs.google.com/document/d/1fJasbjKBzn0p9a-oITdf3GCBukCHvToklc1eX15Bd94/edit
 https://apollo.cs.nthu.edu.tw/pp20/scoreboard/hw2a/
 https://apollo.cs.nthu.edu.tw/pp20/scoreboard/hw2b/
+
+# Report
+https://docs.google.com/document/d/17TEm5_wFgho4iheKvmO8gbagaHBBy5c8xMh0IodeLXU/edit
