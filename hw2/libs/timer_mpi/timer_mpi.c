@@ -1,4 +1,4 @@
-#include"timer.h"
+#include"timer_mpi.h"
 
 Timer::Timer(){
     this->io = 0;
@@ -50,6 +50,10 @@ double Timer::get_rec(const char *s){
     if(!this->is_enable){return 0;}
 
     return this->rec[s];
+}
+
+void Timer::set_rec(const char *s, double t){
+    this->rec[s] = t;
 }
 
 void Timer::clear_rec(const char *s){
@@ -130,37 +134,37 @@ void Timer::report(const char* f_n, const char **order, int n){
     fclose(fp);
 }
 
-// double Timer::reduce(double t){
-//     if(!this->is_enable){return 0;}
+double Timer::reduce(double t){
+    if(!this->is_enable){return 0;}
 
-//     double time = t, sum = 0;
-//     if(this->is_enable_mpi){MPI_Allreduce(&time, &sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);}
-//     else{sum = t;}
+    double time = t, sum = 0;
+    if(this->is_enable_mpi){MPI_Allreduce(&time, &sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);}
+    else{sum = t;}
     
-//     return sum;
-// }
+    return sum;
+}
 
-// void Timer::reduce_rec(const char *s){
-//     if(!this->is_enable){return;}
+void Timer::reduce_rec(const char *s){
+    if(!this->is_enable){return;}
 
-//     if(this->is_enable_mpi){
-//         double time = this->rec[s], sum = 0;
-//         MPI_Allreduce(&time, &sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-//         this->rec[s] = sum;
-//     }
-// }
+    if(this->is_enable_mpi){
+        double time = this->rec[s], sum = 0;
+        MPI_Allreduce(&time, &sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        this->rec[s] = sum;
+    }
+}
 
-// void Timer::reduce_all(){
-//     if(!this->is_enable){return;}
+void Timer::reduce_all(){
+    if(!this->is_enable){return;}
 
-//     if(this->is_enable_mpi){
-//         for(std::map<const char*, double>::iterator it = this->rec.begin(); it != rec.end(); it++){
-//             double time = it->second, sum = 0;
-//             MPI_Allreduce(&time, &sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-//             it->second = sum;
-//         }  
-//     }
-// }
+    if(this->is_enable_mpi){
+        for(std::map<const char*, double>::iterator it = this->rec.begin(); it != rec.end(); it++){
+            double time = it->second, sum = 0;
+            MPI_Allreduce(&time, &sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+            it->second = sum;
+        }  
+    }
+}
 
 Timer* Timer::set_unit(char c){this->unit = c; return this;}
 Timer* Timer::set_mpi_rank(int rank){this->rank = rank; return this;}

@@ -8,7 +8,8 @@
 #include <mpi.h>
 #include <omp.h>
 #include <pthread.h>
-#include "./libs/timer/timer.h"
+
+// #include <time.h>
 
 #define MASTER_RANK 0
 #define WORKING_TAG 1

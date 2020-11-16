@@ -27,6 +27,7 @@ do
 
         echo -e "Experiment ${exps}: $node nodes $proc procs"
         exp_res=`srun -n$proc -N$node ./hw1 $exp_n /home/pp20/share/hw1/testcases/$exp_testcase.in ./out/$exp_testcase.out measure/$rep_f_name$proc-$node$rep_f_format`
+        echo -e "${exp_res}"
         echo "${node}, ${proc}, ${exp_res}" >> measure/exp.csv
         exps=$((exps+1))
     done

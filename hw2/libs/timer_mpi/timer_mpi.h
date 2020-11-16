@@ -7,7 +7,7 @@
 #include <time.h>
 #include <string>
 #include <map>
-// #include <mpi.h>
+#include <mpi.h>
 
 #define MSC 'm' // microsecond
 #define SEC 's' // second
@@ -28,6 +28,7 @@ public:
     double pause_rec(const char *);
     void clear_rec(const char *);
     double get_rec(const char *);
+    void set_rec(const char *, double);
     void show_rec(const char *);
     bool is_in(const char *);
     double convert(struct timespec , struct timespec);
@@ -35,9 +36,9 @@ public:
     void report(const char*, const char **, int);
 
     // Functions for MPI
-    // double reduce(double);
-    // void reduce_rec(const char *s);
-    // void reduce_all();
+    double reduce(double);
+    void reduce_rec(const char *s);
+    void reduce_all();
 
     // Set up class prperties
     Timer* set_unit(char);

@@ -94,3 +94,10 @@ nodes, processes, cpu, cpu_sort, cpu_memory, cpu_merge, I/O, I/O_read, I/O_write
 4, 24, 
 4, 48, 
 
+nodes, processes, cpu, cpu_sort, cpu_memory, cpu_merge, I/O, I/O_read, I/O_write, communication, total, execution_time
+1, 1, 
+1, 2, 
+nodes, processes, cpu, cpu_sort, cpu_memory, cpu_merge, I/O, I/O_read, I/O_write, communication, total, execution_time
+1, 1, 
+1, 2, 
+nodes, processes, cpu, cpu_sort, cpu_memory, cpu_merge, I/O, I/O_read, I/O_write, communication, total, execution_time
