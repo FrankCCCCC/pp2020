@@ -125,8 +125,8 @@ int main(int argc, char** argv) {
     // start_pool(pool);
     // end_pool(pool);
     // show_mat(graph, vertex_num);
-    // floyd_warshal();
-    block_floyd_warshal();
+    floyd_warshal();
+    // block_floyd_warshal();
     // printf("After\n");
     // show_mat(graph, vertex_num);
 
@@ -425,16 +425,7 @@ void block_floyd_warshal(){
 
 void floyd_warshal(){
     for(int k = 0; k < vertex_num; k++){
-        // // Inpdependent update
-        // for(int i = 0; i < vertex_num; i++){
-        //     for(int j = 0; j + VECGAP < vertex_num; j+=VECGAP){
-        //         // printf("K: %d, I: %d, J: %d, Vertex Num: %d\n", k, i, j, vertex_num);
-        //         relax_v(get_graph_addr(i, j), get_graph(i, k), get_graph_addr(k, j));
-        //     }
-        //     // printf("Last\n");
-        //     relax_s(get_graph_addr(i, 4), get_graph(i, k), get_graph(k, 4));
-        // }
-
+        printf("Iter %d\n", k);
         // relax(0, k, 4);
         // relax(4, k, 3);
         // relax(7, k, 2);
@@ -451,14 +442,14 @@ void floyd_warshal(){
         // }
 
         int size = 128;
-        #pragma omp parallel num_threads(cpu_num)
-        {
+        // #pragma omp parallel num_threads(cpu_num)
+        // {
             // printf("Thread ID: %d\n", omp_get_thread_num());
             // #pragma omp for schedule(dynamic) nowait
             for(int idx = 0; idx < graph_size; idx+=VECGAP){
                 relax(idx, k, size);
             }
-        }
+        // }
     }
 }
 
