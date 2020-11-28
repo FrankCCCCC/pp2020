@@ -2,6 +2,7 @@
     "python.pythonPath": "/usr/bin/python3",
     "files.associations": {
         "type_traits": "cpp",
-        "tuple": "cpp"
+        "tuple": "cpp",
+        "*.tcc": "cpp"
     }
 }

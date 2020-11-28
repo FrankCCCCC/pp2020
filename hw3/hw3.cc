@@ -14,8 +14,11 @@
 #define VECGAP 4
 #define VECSCALE 2
 
+int vec_counter = 0, non_vec_counter = 0;
+
 int cpu_num = 0;
 int vertex_num = 0, edge_num = 0, graph_size = 0, num_blocks = 0, block_size = 0;
+int is_residual = 0, addr_format = 0;
 int *buf = NULL;
 int *graph = NULL;
 int chunk_size = 8;
@@ -57,7 +60,7 @@ BlockDim get_block_size(int, int, int);
 
 void graph_malloc();
 void buf2graph(int *, int *, int, int, int);
-void omp_buf2graph(int *, int *, int, int, int);
+void omp_buf2graph(int *);
 
 void relax_v(int*, int*, int*);
 void relax(int, int, int*);
@@ -128,6 +131,7 @@ int main(int argc, char** argv) {
     // show_mat(graph, vertex_num);
 
     fwrite(graph, SIZEOFINT, graph_size, f_w);
+    printf("VEC %d, NON %d\n", vec_counter, non_vec_counter);
     return 0;
 }
 
@@ -158,26 +162,26 @@ void buf2graph(int *buf, int *graph, int start, int end, int gap){
 }
 
 void omp_buf2graph(int *buf){
+    const int EDGE0REMARK = -1;
     #pragma omp parallel num_threads(cpu_num)
     {
-        #pragma omp for schedule(guided) nowait
-        for(int i = 0; i < edge_num*3; i+=3){
-            printf("Func: Edge %d - SRC: %d DST: %d WEIGHT: %d\n", i, buf[i], buf[i + 1], buf[i + 2]);
-            set_graph(buf[i], buf[i + 1], buf[i + 2]);
+        #pragma omp for schedule(guided)
+        for(int i = omp_get_thread_num()*3; i < edge_num*3; i+=(omp_get_num_threads()*3)){
+            // printf("Func: Edge %d - SRC: %d DST: %d WEIGHT: %d\n", i, buf[i], buf[i + 1], buf[i + 2]);
+            if(buf[i + 2] == 0){
+                set_graph(buf[i], buf[i + 1], EDGE0REMARK);
+            }else{
+                set_graph(buf[i], buf[i + 1], buf[i + 2]);
+            }
         }
-    }
-    
-    printf("---\n");
-    #pragma omp parallel num_threads(cpu_num)
-    {
-        #pragma omp for schedule(dynamic) nowait collapse(2)
-        for(int i = 0; i < vertex_num; i++){
-            for(int j = 0; j < vertex_num; j++){
-                printf("Func: Edge - SRC: %d DST: %d WEIGHT\n", i, j);
-                if(get_graph(i, j) <= 0 && i != j){
-                    printf("Func: Edge - SRC: %d DST: %d WEIGHT: INF\n", i, j);
-                    set_graph(i, j, DISINF);
-                }
+
+        #pragma omp for schedule(guided)
+        for(int idx = omp_get_thread_num(); idx < graph_size; idx+=omp_get_num_threads()){
+            int i = idx / vertex_num, j = idx % vertex_num;
+            if(get_graph(i, j) == 0 && i != j){
+                set_graph(i, j, DISINF);
+            }else if(get_graph(i, j) == EDGE0REMARK){
+                set_graph(i, j, 0);
             }
         }
     }
@@ -185,49 +189,66 @@ void omp_buf2graph(int *buf){
 
 void init_block(){
     // num_blocks = ceil(graph_size / sqrt(cpu_num));
-    block_size = 16;
+    block_size = 256;
     if(block_size > vertex_num){block_size = vertex_num;}
-    num_blocks = vertex_num / block_size;
-
+    is_residual = vertex_num % block_size > 0;
+    
+    // num_blocks = vertex_num / block_size;
+    // addr_format = 0;
     if(num_blocks < block_size){
-        num_blocks = vertex_num / block_size + (vertex_num % block_size > 0);
+        addr_format = 0;
+        num_blocks = vertex_num / block_size + is_residual;
+    }else{
+        // addr_format = 1;
+        num_blocks = vertex_num / block_size;
     }
 }
 
 BlockDim get_block_pos(int b_i, int b_j, int b_k){
     BlockDim bd;
-    int residule = vertex_num % block_size;
-    bd.i = block_size * b_i + (residule < b_i? residule : b_i);
-    bd.j = block_size * b_j + (residule < b_j? residule : b_j);
-    bd.k = block_size * b_k + (residule < b_k? residule : b_k);
+    // int residule = vertex_num % block_size;
+    // bd.i = block_size * b_i + (residule < b_i? residule : b_i);
+    // bd.j = block_size * b_j + (residule < b_j? residule : b_j);
+    // bd.k = block_size * b_k + (residule < b_k? residule : b_k);
 
-    if(num_blocks < block_size){
+    if(!addr_format){
         bd.i = block_size * b_i;
         bd.j = block_size * b_j;
         bd.k = block_size * b_k;
+    }else{
+        int residule = vertex_num % block_size;
+        bd.i = block_size * b_i + (residule < b_i? residule : b_i);
+        bd.j = block_size * b_j + (residule < b_j? residule : b_j);
+        bd.k = block_size * b_k + (residule < b_k? residule : b_k);
     }
     return bd;
 }
 
 BlockDim get_block_size(int b_i, int b_j, int b_k){
     BlockDim bd;
-    int residule = vertex_num % block_size;
-    bd.i = block_size + (residule > b_i);
-    bd.j = block_size + (residule > b_j);
-    bd.k = block_size + (residule > b_k);
+    // int residule = vertex_num % block_size;
+    // bd.i = block_size + (residule > b_i);
+    // bd.j = block_size + (residule > b_j);
+    // bd.k = block_size + (residule > b_k);
 
-    if(num_blocks < block_size){
-        if(b_i < num_blocks - 1){bd.i = block_size;}
+    if(!addr_format){
+        const int quo = vertex_num / block_size;
+        if(b_i < quo){bd.i = block_size;}
         else if(b_i == num_blocks - 1){bd.i = vertex_num % block_size;}
         else{bd.i = 0;}
         
-        if(b_j < num_blocks - 1){bd.j = block_size;}
+        if(b_j < quo){bd.j = block_size;}
         else if(b_j == num_blocks - 1){bd.j = vertex_num % block_size;}
         else{bd.j = 0;}
 
-        if(b_k < num_blocks - 1){bd.k = block_size;}
-        else if(b_j == num_blocks - 1){bd.j = vertex_num % block_size;}
-        else{bd.j = 0;}
+        if(b_k < quo){bd.k = block_size;}
+        else if(b_k == num_blocks - 1){bd.k = vertex_num % block_size;}
+        else{bd.k = 0;}
+    }else{
+        int residule = vertex_num % block_size;
+        bd.i = block_size + (residule > b_i);
+        bd.j = block_size + (residule > b_j);
+        bd.k = block_size + (residule > b_k);
     }
     return bd;
 }
@@ -291,10 +312,12 @@ void relax(int idx, int ak, int size){
         
         // Relax with Vectorization speed up
         for(; j < vec_end; j+=VECGAP){
+            // vec_counter++;
             relax_v(get_graph_addr(i, j), get_graph(i, ak), get_graph_addr(ak, j));
         }
         // Single relax
         for(; j < single_end; j++){
+            // non_vec_counter++;
             relax_s(get_graph_addr(i, j), get_graph(i, ak), get_graph(ak, j));
         }
         j = 0;
@@ -305,47 +328,65 @@ void relax(int idx, int ak, int size){
 void relax_block(int b_i, int b_j, int b_k){
     BlockDim bidx = get_block_pos(b_i, b_j, b_k);
     BlockDim bdim = get_block_size(b_i, b_j, b_k);
-    printf("B(%d %d %d), IDX(%d %d %d) DIM(%d %d %d)\n", b_i, b_j, b_k, bidx.i, bidx.j, bidx.k, bdim.i, bdim.j, bdim.k);
-    // #pragma omp parallel num_threads(cpu_num)
-    // {
-    //     #pragma omp for schedule(dynamic) collapse(2) nowait 
-
+    // printf("B(%d %d %d), IDX(%d %d %d) DIM(%d %d %d)\n", b_i, b_j, b_k, bidx.i, bidx.j, bidx.k, bdim.i, bdim.j, bdim.k);
     for(int k = bidx.k; k < bidx.k + bdim.k; k++){
         for(int i = bidx.i; i < vertex_num; i++){
             relax(get_graph_idx(i, bidx.j), k, bdim.j);
         }
     }
+}
 
+void omp_relax_block(int b_i, int b_j, int b_k){
+    BlockDim bidx = get_block_pos(b_i, b_j, b_k);
+    BlockDim bdim = get_block_size(b_i, b_j, b_k);
+    // printf("B(%d %d %d), IDX(%d %d %d) DIM(%d %d %d)\n", b_i, b_j, b_k, bidx.i, bidx.j, bidx.k, bdim.i, bdim.j, bdim.k);
+    // #pragma omp parallel num_threads(cpu_num)
+    // {
+        for(int k = bidx.k; k < bidx.k + bdim.k; k++){
+            #pragma omp for schedule(dynamic)
+            for(int i = bidx.i; i < vertex_num; i++){
+                relax(get_graph_idx(i, bidx.j), k, bdim.j);
+            }
+        }
     // }
 }
 
 void block_floyd_warshal(){
     for(int k = 0; k < num_blocks; k++){
+        printf("Iter %d\n", k);
         relax_block(k, k, k);
 
-        // #pragma omp parallel num_threads(cpu_num)
-        // {
-        //     #pragma omp for schedule(dynamic) nowait 
-        //     for(int j = 0; j < num_blocks; j++){
-        //         if(j == k){continue;}
-        //         relax_block(k, j, k);
-        //     }
-        
-        //     #pragma omp for schedule(dynamic) nowait 
-        //     for(int i = 0; i < num_blocks; i++){
-        //         if(i == k){continue;}
-        //         relax_block(i, k, k);
-        //     }
-        
-        //     #pragma omp for schedule(dynamic) collapse(2) nowait
-        //     for(int i = 0; i < num_blocks; i++){
-        //         for(int j = 0; j < num_blocks; j++){
-        //             if(i == k || j == k){continue;}
-        //             relax_block(i, j, k);
-        //         }
-        //     }
-        // }
+        #pragma omp parallel num_threads(cpu_num)
+        {   
+            #pragma omp for schedule(dynamic)
+            for(int j = 0; j < num_blocks; j++){
+                printf("A %d\n", j);
+                if(j == k){continue;}
+                relax_block(k, j, k);
+                printf("A %d Done\n", j);
+            }
+            printf("A FINISH\n");
+            #pragma omp for schedule(dynamic) 
+            for(int i = 0; i < num_blocks; i++){
+                if(i == k){continue;}
+                printf("B %d\n", i);
+                relax_block(i, k, k);
+                printf("B %d Done\n", i);
+            }
+            printf("B FINISH\n");
+            #pragma omp for schedule(dynamic) collapse(2)
+            for(int i = 0; i < num_blocks; i++){
+                for(int j = 0; j < num_blocks; j++){
+                    if(i == k || j == k){continue;}
+                    printf("C %d:%d\n", i, j);
+                    relax_block(i, j, k);
+                    printf("C %d:%d Done\n", i, j);
+                }
+            }
+            printf("C FINISH\n");
+        }
 
+        // 2 Segment Version
         // for(int j = 0; j < num_blocks; j++){
         //     if(j == k){continue;}
         //     relax_block(k, j, k);
@@ -361,18 +402,19 @@ void block_floyd_warshal(){
         //     }
         // }
 
-        for(int j = 0; j < num_blocks; j++){
-            if(j == k){continue;}
-            relax_block(k, j, k);
-        }
-        for(int i = 0; i < num_blocks; i++){
-            if(i == k){continue;}
-            relax_block(i, k, k);
-            for(int j = 0; j < num_blocks; j++){
-                if(j == k){continue;}
-                relax_block(i, j, k);
-            }
-        }
+        // 2 Segment Version
+        // for(int j = 0; j < num_blocks; j++){
+        //     if(j == k){continue;}
+        //     relax_block(k, j, k);
+        // }
+        // for(int i = 0; i < num_blocks; i++){
+        //     if(i == k){continue;}
+        //     relax_block(i, k, k);
+        //     for(int j = 0; j < num_blocks; j++){
+        //         if(j == k){continue;}
+        //         relax_block(i, j, k);
+        //     }
+        // }
 
         // for(int idx = 0; idx < num_blocks * num_blocks; idx++){
         //     int i = idx / num_blocks, j = idx % num_blocks;
@@ -383,25 +425,6 @@ void block_floyd_warshal(){
 
 void floyd_warshal(){
     for(int k = 0; k < vertex_num; k++){
-        // // Row dependency update
-        // for(int j = 0; j < vertex_num; j++){
-        //     // relax_v(get_graph_addr(k, j), get_graph(k, k), get_graph_addr(k, j));
-        //     relax_s(get_graph_addr(k, j), get_graph(k, k), get_graph(k, j));
-        // }
-        // // Column dependency update
-        // for(int i = 0; i < vertex_num; i++){
-        //     relax_s(get_graph_addr(i, k), get_graph(k, k), get_graph(i, k));
-        // }
-
-        // // Inpdependent update, sequential version
-        // for(int i = 0; i < vertex_num; i++){
-        //     for(int j = 0; j < vertex_num; j++){
-        //         // printf("K: %d, I: %d, J: %d, Vertex Num: %d\n", k, i, j, vertex_num);
-        //         relax_s(get_graph_addr(i, j), get_graph(i, k), get_graph(k, j));
-        //     }
-        //     // relax_v(get_graph_addr(k, j), get_graph(k, k), get_graph_addr(k, j));
-        // }
-
         // // Inpdependent update
         // for(int i = 0; i < vertex_num; i++){
         //     for(int j = 0; j + VECGAP < vertex_num; j+=VECGAP){
