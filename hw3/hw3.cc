@@ -17,11 +17,14 @@
 // int vec_counter = 0, non_vec_counter = 0;
 
 int cpu_num = 0;
-int vertex_num = 0, edge_num = 0, graph_size = 0, num_blocks = 0, block_size = 0;
+int vertex_num = 0, edge_num = 0, graph_size = 0;
 int is_residual = 0, addr_format = 0;
 int *buf = NULL;
 int *graph = NULL;
-int chunk_size = 8;
+int *block_deps = NULL;
+int num_blocks = 0, block_size = 0, block_num_squr = 0, block_num_cubic = 0;
+int block_assign_step = 0;
+// int chunk_size = 8;
 
 const int zero_vec[VECGAP] = {0};
 const int one_vec[VECGAP] = {1, 1, 1, 1};
@@ -54,9 +57,11 @@ typedef struct{
     int j;
     int k;
 }BlockDim;
+BlockDim *task_queue = NULL;
 void init_block();
 BlockDim get_block_pos(int, int, int);
 BlockDim get_block_size(int, int, int);
+int check_block_dep(int, int, int);
 
 void graph_malloc();
 void buf2graph(int *, int *, int, int, int);
@@ -112,7 +117,7 @@ int main(int argc, char** argv) {
     graph_malloc();
     init_block();
     
-    printf("%d %d\n", vertex_num, edge_num);
+    // printf("%d %d\n", vertex_num, edge_num);
     // for(int i = 0; i < edge_num * 3; i += 3){
     //     printf("Edge %d - SRC: %d DST: %d WEIGHT: %d\n", i, buf[i], buf[i + 1], buf[i + 2]);
     // }
@@ -188,22 +193,28 @@ void omp_buf2graph(int *buf){
 }
 
 void init_block(){
-    block_size = 512;
-    // block_size = (((int)ceil(vertex_num / sqrt(cpu_num))) >> VECSCALE) << VECSCALE;
+    // Set Block Size
+    // block_size = 1024;
+    block_size = (((int)ceil(vertex_num / sqrt(cpu_num))) >> VECSCALE) << VECSCALE;
     if(block_size > vertex_num){block_size = vertex_num;}
     else if(block_size < VECGAP){block_size = VECGAP;}
     printf("Block Size: %d\n", block_size);
     is_residual = vertex_num % block_size > 0;
     
+    // Set Number of blocks
     num_blocks = vertex_num / block_size;
     // addr_format = 0;
-    if(num_blocks < block_size){
+    // if(num_blocks < block_size){
         addr_format = 0;
         num_blocks = vertex_num / block_size + is_residual;
-    }else{
-        addr_format = 1;
-        num_blocks = vertex_num / block_size;
-    }
+    // }else{
+    //     addr_format = 1;
+    //     num_blocks = vertex_num / block_size;
+    // }
+
+    block_num_squr = num_blocks * num_blocks;
+    block_deps = (int*)malloc(SIZEOFINT * block_num_squr);
+    memset(block_deps, 0, block_num_squr);
 }
 
 BlockDim get_block_pos(int b_i, int b_j, int b_k){
@@ -213,16 +224,16 @@ BlockDim get_block_pos(int b_i, int b_j, int b_k){
     // bd.j = block_size * b_j + (residule < b_j? residule : b_j);
     // bd.k = block_size * b_k + (residule < b_k? residule : b_k);
 
-    if(!addr_format){
+    // if(!addr_format){
         bd.i = block_size * b_i;
         bd.j = block_size * b_j;
         bd.k = block_size * b_k;
-    }else{
-        int residule = vertex_num % block_size;
-        bd.i = block_size * b_i + (residule < b_i? residule : b_i);
-        bd.j = block_size * b_j + (residule < b_j? residule : b_j);
-        bd.k = block_size * b_k + (residule < b_k? residule : b_k);
-    }
+    // }else{
+    //     int residule = vertex_num % block_size;
+    //     bd.i = block_size * b_i + (residule < b_i? residule : b_i);
+    //     bd.j = block_size * b_j + (residule < b_j? residule : b_j);
+    //     bd.k = block_size * b_k + (residule < b_k? residule : b_k);
+    // }
     return bd;
 }
 
@@ -233,7 +244,7 @@ BlockDim get_block_size(int b_i, int b_j, int b_k){
     // bd.j = block_size + (residule > b_j);
     // bd.k = block_size + (residule > b_k);
 
-    if(!addr_format){
+    // if(!addr_format){
         const int quo = vertex_num / block_size;
         if(b_i < quo){bd.i = block_size;}
         else if(b_i == num_blocks - 1){bd.i = vertex_num % block_size;}
@@ -246,13 +257,26 @@ BlockDim get_block_size(int b_i, int b_j, int b_k){
         if(b_k < quo){bd.k = block_size;}
         else if(b_k == num_blocks - 1){bd.k = vertex_num % block_size;}
         else{bd.k = 0;}
-    }else{
-        int residule = vertex_num % block_size;
-        bd.i = block_size + (residule > b_i);
-        bd.j = block_size + (residule > b_j);
-        bd.k = block_size + (residule > b_k);
-    }
+    // }else{
+    //     int residule = vertex_num % block_size;
+    //     bd.i = block_size + (residule > b_i);
+    //     bd.j = block_size + (residule > b_j);
+    //     bd.k = block_size + (residule > b_k);
+    // }
     return bd;
+}
+
+int get_block_dep(int b_i, int b_j){
+    return block_deps[b_i * num_blocks + b_j];
+}
+int set_block_dep(int b_i, int b_j){
+    return ++block_deps[b_i * num_blocks + b_j];
+}
+int check_block_dep(int b_i, int b_j, int b_k){
+    if(b_k > 0){
+        return get_block_dep(b_i, b_k) == b_k && get_block_dep(b_k, b_j) == b_k && get_block_dep(b_k, b_k) == b_k;
+    }else if(b_k == 0){return 1;}
+    return 0;
 }
 
 // Relax with intermediate sequence k, from sequence i to j
@@ -334,7 +358,7 @@ void relax(int idx, int ak, int size){
 void relax_block(int b_i, int b_j, int b_k){
     BlockDim bidx = get_block_pos(b_i, b_j, b_k);
     BlockDim bdim = get_block_size(b_i, b_j, b_k);
-    printf("B(%d %d %d), IDX(%d %d %d) DIM(%d %d %d)\n", b_i, b_j, b_k, bidx.i, bidx.j, bidx.k, bdim.i, bdim.j, bdim.k);
+    // printf("B(%d %d %d), IDX(%d %d %d) DIM(%d %d %d)\n", b_i, b_j, b_k, bidx.i, bidx.j, bidx.k, bdim.i, bdim.j, bdim.k);
     for(int k = bidx.k; k < bidx.k + bdim.k; k++){
         for(int i = bidx.i; i < vertex_num; i++){
             relax(get_graph_idx(i, bidx.j), k, bdim.j);
@@ -362,7 +386,10 @@ void block_floyd_warshal(){
         // printf("Iter %d\n", k);
         relax_block(k, k, k);
 
-        #pragma omp parallel num_threads(cpu_num)
+        #pragma omp parallel num_threads(cpu_num) shared(\
+            graph, vertex_num, edge_num, graph_size, num_blocks, \
+            block_size, is_residual, addr_format, cpu_num, k, buf, chunk_size, \
+            zero_vec, one_vec, full_vec, zero_v, one_v, full_v)
         {   
             #pragma omp for schedule(dynamic)
             for(int j = 0; j < num_blocks; j++){
@@ -371,7 +398,7 @@ void block_floyd_warshal(){
                 relax_block(k, j, k);
                 // printf("A %d Done\n", j);
             }
-            printf("A FINISH\n");
+            // printf("A FINISH\n");
             #pragma omp for schedule(dynamic) 
             for(int i = 0; i < num_blocks; i++){
                 if(i == k){continue;}
@@ -379,7 +406,7 @@ void block_floyd_warshal(){
                 relax_block(i, k, k);
                 // printf("B %d Done\n", i);
             }
-            printf("B FINISH\n");
+            // printf("B FINISH\n");
             #pragma omp for schedule(dynamic) collapse(2)
             for(int i = 0; i < num_blocks; i++){
                 for(int j = 0; j < num_blocks; j++){
@@ -389,7 +416,7 @@ void block_floyd_warshal(){
                     // printf("C %d:%d Done\n", i, j);
                 }
             }
-            printf("C FINISH\n");
+            // printf("C FINISH\n");
         }
 
         // 2 Segment Version
@@ -487,21 +514,14 @@ void sync_threads(ThreadPool* pool){
     }
     pthread_mutex_unlock(pool->sync_lock);
 }
-void get_task(int *idx, int *size, int *is_next_k){
+void get_task(BlockDim *task){
     static int counter = 0;
-    if(counter < graph_size){
-        *idx = counter;
-        if(counter + chunk_size <= graph_size){
-            *size = chunk_size;
-        }else{
-            *size = graph_size - counter;
-        }
-        counter += (*size);
-        *is_next_k = 0;
-    }else{
-        idx = 0;
-        *is_next_k = 1;
-    }
+
+    task->i = task_queue[counter].i;
+    task->j = task_queue[counter].j;
+    task->k = task_queue[counter].k;
+    counter = (counter + 1) % block_num_squr;
+    block_assign_step++;
 }
 
 void *worker(void *arg){
@@ -509,7 +529,9 @@ void *worker(void *arg){
     ThreadPool *pool = ((WorkerArg*)arg)->pool;
     printf("Created Thread %d\n", thread_id);
 
-    buf2graph(buf, graph, thread_id, edge_num, pool->threads_num);
+    // buf2graph(buf, graph, thread_id, edge_num, pool->threads_num);
+    BlockDim task_block;
+
 
     pthread_exit(NULL);
 }
