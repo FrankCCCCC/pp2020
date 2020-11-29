@@ -14,7 +14,7 @@
 #define VECGAP 4
 #define VECSCALE 2
 
-int vec_counter = 0, non_vec_counter = 0;
+// int vec_counter = 0, non_vec_counter = 0;
 
 int cpu_num = 0;
 int vertex_num = 0, edge_num = 0, graph_size = 0, num_blocks = 0, block_size = 0;
@@ -125,13 +125,13 @@ int main(int argc, char** argv) {
     // start_pool(pool);
     // end_pool(pool);
     // show_mat(graph, vertex_num);
-    floyd_warshal();
-    // block_floyd_warshal();
+    // floyd_warshal();
+    block_floyd_warshal();
     // printf("After\n");
     // show_mat(graph, vertex_num);
 
     fwrite(graph, SIZEOFINT, graph_size, f_w);
-    printf("VEC %d, NON %d\n", vec_counter, non_vec_counter);
+    // printf("VEC %d, NON %d\n", vec_counter, non_vec_counter);
     return 0;
 }
 
@@ -188,18 +188,20 @@ void omp_buf2graph(int *buf){
 }
 
 void init_block(){
-    // num_blocks = ceil(graph_size / sqrt(cpu_num));
-    block_size = 256;
+    block_size = 512;
+    // block_size = (((int)ceil(vertex_num / sqrt(cpu_num))) >> VECSCALE) << VECSCALE;
     if(block_size > vertex_num){block_size = vertex_num;}
+    else if(block_size < VECGAP){block_size = VECGAP;}
+    printf("Block Size: %d\n", block_size);
     is_residual = vertex_num % block_size > 0;
     
-    // num_blocks = vertex_num / block_size;
+    num_blocks = vertex_num / block_size;
     // addr_format = 0;
     if(num_blocks < block_size){
         addr_format = 0;
         num_blocks = vertex_num / block_size + is_residual;
     }else{
-        // addr_format = 1;
+        addr_format = 1;
         num_blocks = vertex_num / block_size;
     }
 }
@@ -254,7 +256,7 @@ BlockDim get_block_size(int b_i, int b_j, int b_k){
 }
 
 // Relax with intermediate sequence k, from sequence i to j
-void relax_v(int *aij, int aik, int *akj){
+int relax_v(int *aij, int aik, int *akj){
     // show_mat(graph, vertex_num);
     // show_m128i((__m128i*)aij);
     __m128i aij_v = _mm_loadu_si128((const __m128i*)aij);
@@ -291,12 +293,16 @@ void relax_v(int *aij, int aik, int *akj){
     _mm_storeu_si128((__m128i*)aij, res_v);
     // printf("AIJ: %d %d %d %d\n", aij[0], aij[1], aij[2], aij[3]);
     // show_mat(graph, vertex_num);
+
+    return ((int*)(&compare_gt_v))[0] || ((int*)(&compare_gt_v))[1] || ((int*)(&compare_gt_v))[2] || ((int*)(&compare_gt_v))[3];
 }
 // Relax with intermediate node k, from node i to j
-void relax_s(int *aij, int aik, int akj){
+int relax_s(int *aij, int aik, int akj){
     if((*aij) > aik + akj){
         (*aij) = aik + akj;
+        return 1;
     }
+    return 0;
 }
 // Relax the node from A(i,j) to A(i,j+size), includes node which j+size > vertex_num
 void relax(int idx, int ak, int size){
@@ -328,7 +334,7 @@ void relax(int idx, int ak, int size){
 void relax_block(int b_i, int b_j, int b_k){
     BlockDim bidx = get_block_pos(b_i, b_j, b_k);
     BlockDim bdim = get_block_size(b_i, b_j, b_k);
-    // printf("B(%d %d %d), IDX(%d %d %d) DIM(%d %d %d)\n", b_i, b_j, b_k, bidx.i, bidx.j, bidx.k, bdim.i, bdim.j, bdim.k);
+    printf("B(%d %d %d), IDX(%d %d %d) DIM(%d %d %d)\n", b_i, b_j, b_k, bidx.i, bidx.j, bidx.k, bdim.i, bdim.j, bdim.k);
     for(int k = bidx.k; k < bidx.k + bdim.k; k++){
         for(int i = bidx.i; i < vertex_num; i++){
             relax(get_graph_idx(i, bidx.j), k, bdim.j);
@@ -353,34 +359,34 @@ void omp_relax_block(int b_i, int b_j, int b_k){
 
 void block_floyd_warshal(){
     for(int k = 0; k < num_blocks; k++){
-        printf("Iter %d\n", k);
+        // printf("Iter %d\n", k);
         relax_block(k, k, k);
 
         #pragma omp parallel num_threads(cpu_num)
         {   
             #pragma omp for schedule(dynamic)
             for(int j = 0; j < num_blocks; j++){
-                printf("A %d\n", j);
+                // printf("A %d\n", j);
                 if(j == k){continue;}
                 relax_block(k, j, k);
-                printf("A %d Done\n", j);
+                // printf("A %d Done\n", j);
             }
             printf("A FINISH\n");
             #pragma omp for schedule(dynamic) 
             for(int i = 0; i < num_blocks; i++){
                 if(i == k){continue;}
-                printf("B %d\n", i);
+                // printf("B %d\n", i);
                 relax_block(i, k, k);
-                printf("B %d Done\n", i);
+                // printf("B %d Done\n", i);
             }
             printf("B FINISH\n");
             #pragma omp for schedule(dynamic) collapse(2)
             for(int i = 0; i < num_blocks; i++){
                 for(int j = 0; j < num_blocks; j++){
                     if(i == k || j == k){continue;}
-                    printf("C %d:%d\n", i, j);
+                    // printf("C %d:%d\n", i, j);
                     relax_block(i, j, k);
-                    printf("C %d:%d Done\n", i, j);
+                    // printf("C %d:%d Done\n", i, j);
                 }
             }
             printf("C FINISH\n");
