@@ -12,9 +12,9 @@ bash compile.sh
 # diff sample/cases/c01.1.out out/c01.1.out
 
 # tcs=(0 1 2)
-tcs=(0 1 2 3 4 5 6 7 8 9 10 15)
+# tcs=(0 1 2 3 4 5 6 7 15 17)
 # tcs=(0 17 18)
-# tcs=(0 20)
+tcs=(0 15)
 tc_num=${#tcs[@]}
 # vatc_numr=$((tc_num+1))
 
