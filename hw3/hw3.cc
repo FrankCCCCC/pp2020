@@ -3,7 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <assert.h>
-// #include <pthread.h>
+#include <pthread.h>
 #include <omp.h>
 #include <emmintrin.h>
 

@@ -6,9 +6,7 @@ hw3="hw3-t"
 analy_post="-a"
 load_post="-b"
 report="report.csv"
-report_b="report_b.csv"
 exp_file="exp.csv"
-exp_file_b="exp_b.csv"
 out="_tc"
 
 # Select target
@@ -35,9 +33,10 @@ timer_specs="threads, thread_1_load, thread_2_load, \
              thread_3_load, thread_4_load, thread_5_load, \
              thread_6_load, thread_7_load, thread_8_load, \
              thread_9_load, thread_10_load, thread_11_load, \
-             thread_12_load, cpu, lock, I/O, total"
+             thread_12_load, cpu, memory, I/O, total"
 # Testcase 
-tcs=(1 2 3)
+tcs=(18 18 18 18 18 18)
+exp1_tc=18
 exp_num=${#tcs[@]}
 exp_threads=(1 2 4 6 8 12)
 
@@ -57,11 +56,6 @@ echo -e ""
 echo -e ${timer_specs} >> ${report_dir}/${exp_file}
 for ((idx=0;idx<${exp_num};idx++))
 do
-    echo -e "--->Experiment ${idx}: ${exp_threads[idx]} Threads in 1 Process"
-    # echo -e "${runner} -n1 -c${exp_threads[idx]} ${execs}/${target} ${out_dir}/${target}${out}${idx}.png ${tcs[0]} ${report_dir}/${report}"
-    echo -e "Results"
-    echo -e ""
-
     # Get name of the testcase
     num=0
     if [ "${tcs[idx]}" -gt 9 ]; then
@@ -71,14 +65,19 @@ do
     fi
     rm out/c${num}.1.out
 
+    echo -e "--->Experiment ${idx}: ${exp_threads[idx]} Threads in 1 Process"
+    echo -e "${runner} -n1 -c${exp_threads[idx]} ${execs}/${target} ${in_dir}/c${num}.1 ${out_dir}c${num}.1.out"
+    echo -e "Results"
+    echo -e ""
+
     # Execute program
     # exp_res=`${execs}/${target} ${out_dir}/${target}${out}${idx}.png ${tcs[0]} ${report_dir}/${report}`
     # ${execs}/${target} ${out_dir}/${target}${out}${idx}.png ${tcs[idx]} ${report_dir}/${report}
     if [ "$is_show_timer" = "Y" ]; then
-        ${runner} -n1 -c${exp_threads[idx]} ${execs}/${target} ${out_dir}/${target}${out}${idx}.png ${tcs[0]} ${report_dir}/${report} ${is_show_timer}
+        ${runner} -n1 -c${exp_threads[idx]} ${execs}/${target} ${in_dir}/c${num}.1 ${out_dir}c${num}.1.out
     else
         # exp_res=`${runner} -n1 -c${exp_threads[idx]} ${execs}/${target} ${in_dir}/c${num}.1 ${out_dir}c${num}.1.out ${report_dir}/${report} ${is_show_timer}`
-        exp_res=`${runner} -n1 -c${exp_threads[idx]} ${execs}/${target} ${in_dir}/c${num}.1 ${out_dir}c${num}.1.out`
+        exp_res=`${runner} -n1 -c${exp_threads[idx]} ${execs}/${target} ${in_dir}/c${num}.1 ${out_dir}c${num}.1.out ${report_dir}/${exp_file} ${is_show_timer}`
         echo -e "${timer_specs}"
         echo -e "${exp_res}"
 

@@ -10,6 +10,7 @@
 
 // Timer
 Timer t;
+Timer t_ts[30];
 int is_enable_show = 1;
 
 #define DISINF 6000*1000+1000
@@ -76,8 +77,9 @@ void relax_block(int, int, int);
 void block_floyd_warshall();
 
 int main(int argc, char** argv) {
-    if(argv[4][0] == 'N'){t.disable_show(); is_enable_show=0;}
-    else if(argv[4][0] == 'Y'){ is_enable_show=1;}
+    if(argc >= 5){
+        if(argv[4][0] == 'N'){t.disable_show(); is_enable_show=0;}
+    }
 
     t.start_rec("total");
 
@@ -98,11 +100,15 @@ int main(int argc, char** argv) {
     fread(&edge_num, SIZEOFINT, 1, f_r);
     t.pause_rec("io");
     graph_size = vertex_num * vertex_num;
+    t.start_rec("mem");
     buf = (int*)malloc(edge_num * SIZEOFINT * 3);
+    t.pause_rec("mem");
     t.start_rec("io");
     fread(buf, SIZEOFINT, edge_num * 3, f_r);
     t.pause_rec("io");
+    t.start_rec("mem");
     graph_malloc();
+    t.pause_rec("mem");
     init_block();
     
     // printf("Vertex: %d Edge: %d\n", vertex_num, edge_num);
@@ -116,8 +122,24 @@ int main(int argc, char** argv) {
     t.pause_rec("io");
 
     t.pause_rec("total");
-    const char *order[4] = {"cpu", "io", "total"};
-    t.report(argv[9], order, 4);
+
+    for(int i=0; i < cpu_num; i++){
+        if(!is_enable_show){t_ts[i].disable_show();}
+        t_ts[i].show_rec("thread");
+    }
+    t.show_rec("cpu");
+    t.show_rec("mem");
+    t.show_rec("io");
+    t.show_rec("total");
+
+    const char *t_ts_order[1] = {"thread"};
+    const char *order[4] = {"cpu", "mem", "io", "total"};
+    if(argc >= 5){
+        for(int i=0; i < cpu_num; i++){
+            t_ts[i].report("dump.csv", t_ts_order, 1);
+        }
+        t.report("dump.csv", order, 4);
+    }
 
     return 0;
 }
@@ -283,23 +305,29 @@ void relax_block_s(int b_i, int b_j, int b_k){
 void block_floyd_warshall(){
     for(int k = 0; k < num_blocks; k++){
         relax_block(k, k, k);
-
-        #pragma omp parallel for schedule(static)
-        for(int j = 0; j < num_blocks; j++){
-            if(j == k){continue;}
-            relax_block(k, j, k);
-        }
-        #pragma omp parallel for schedule(static) 
-        for(int i = 0; i < num_blocks; i++){
-            if(i == k){continue;}
-            relax_block(i, k, k);
-        }
-        #pragma omp parallel for schedule(static) collapse(2)
-        for(int i = 0; i < num_blocks; i++){
+        
+        #pragma omp parallel num_threads(cpu_num)
+        {
+            t_ts[omp_get_thread_num()].start_rec("thread");
+            #pragma omp for schedule(static)
             for(int j = 0; j < num_blocks; j++){
-                if(i == k || j == k){continue;}
-                relax_block(i, j, k);
+                if(j == k){continue;}
+                relax_block(k, j, k);
             }
+            
+            #pragma omp for schedule(static) 
+            for(int i = 0; i < num_blocks; i++){
+                if(i == k){continue;}
+                relax_block(i, k, k);
+            }
+            #pragma omp for schedule(static) collapse(2)
+            for(int i = 0; i < num_blocks; i++){
+                for(int j = 0; j < num_blocks; j++){
+                    if(i == k || j == k){continue;}
+                    relax_block(i, j, k);
+                }
+            }
+            t_ts[omp_get_thread_num()].pause_rec("thread");
         }
     }
 }
