@@ -7,6 +7,8 @@
 #include <omp.h>
 #include <emmintrin.h>
 
+#include "../../libs/timer/timer.h"
+
 #define DISINF 6000*1000+1000
 #define FULL 2147483647
 #define DISZSELF 0
@@ -102,7 +104,7 @@ int main(int argc, char** argv) {
     cpu_num = CPU_COUNT(&cpu_set);
     // printf("%d cpus available\n", cpu_num);
 
-    assert(argc == 3);
+    // assert(argc == 3);
     FILE *f_r = NULL, *f_w = NULL;
     f_r = fopen(argv[1], "r");
     f_w = fopen(argv[2], "w");
