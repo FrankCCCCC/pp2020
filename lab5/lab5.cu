@@ -14,6 +14,9 @@
 #define MASK_Y 5
 #define SCALE 8
 
+const dim3 thread_dim(2, 512);
+const int block_num = 2048;
+
 /* Hint 7 */
 // this variable is used by device
 // int mask[MASK_N][MASK_X][MASK_Y] = { 
@@ -102,15 +105,25 @@ void write_png(const char* filename, png_bytep image, const unsigned height, con
 
 /* Hint 5 */
 // this function is called by host and executed by device
-// extern 
-__global__ void sobel_cuda (unsigned char* s, unsigned char* t, unsigned height, unsigned width, unsigned channels) {
+extern __shared__ int sm_s[];
+__global__ void sobel(unsigned char* s, unsigned char* t, unsigned height, unsigned width, unsigned channels) {
     int  x, y, i, v, u;
     int  R, G, B;
     float val[MASK_N*3] = {0.0};
-    int adjustX, adjustY, xBound, yBound;
-    int idx_x = threadIdx.x;
-    int idx_y = blockIdx.x;
-    __shared__ int sm[MASK_N][MASK_X][MASK_Y];
+    
+
+    const int x_divisor = blockDim.x - 1;
+    const int x_width_div = width / x_divisor;
+    const int x_width_mod = width % x_divisor;
+    const int x_start = threadIdx.x * x_width_div;
+    const int x_width = threadIdx.x < blockDim.x - 1? x_start + x_width_div : x_start + x_width_mod;
+    
+    const int adjustX = (MASK_X % 2) ? 1 : 0;
+    const int adjustY = (MASK_Y % 2) ? 1 : 0;
+    const int xBound = MASK_X /2;
+    const int yBound = MASK_Y /2;
+
+    __shared__ int sm_mask[MASK_N][MASK_X][MASK_Y];
 
     int mask[MASK_N][MASK_X][MASK_Y] = { 
         {{ -1, -4, -6, -4, -1},
@@ -128,7 +141,7 @@ __global__ void sobel_cuda (unsigned char* s, unsigned char* t, unsigned height,
     for(int i = 0; i < MASK_N; i++){
         for(int j = 0; j < MASK_X; j++){
             for(int k = 0; k < MASK_Y; k++){
-                sm[i][j][k] = mask[i][j][k];
+                sm_mask[i][j][k] = mask[i][j][k];
             }
         }
     }
@@ -136,19 +149,25 @@ __global__ void sobel_cuda (unsigned char* s, unsigned char* t, unsigned height,
 
     /* Hint 6 */
     // parallel job by blockIdx, blockDim, threadIdx 
-    for (y = idx_y; y < height; y+=gridDim.x) {
+    for (y = blockIdx.x * blockDim.y + threadIdx.y; y < height; y+=gridDim.x * blockDim.y) {
     // for (y = 0; y < height; ++y) {
-        for (x = idx_x; x < width; x+=blockDim.x) {
+        for (x = x_start; x < x_width; x+=1) {
         // for (x = 0; x < width; ++x) {
             for (i = 0; i < MASK_N; ++i) {
-                adjustX = (MASK_X % 2) ? 1 : 0;
-                adjustY = (MASK_Y % 2) ? 1 : 0;
-                xBound = MASK_X /2;
-                yBound = MASK_Y /2;
-
                 val[i*3+2] = 0.0;
                 val[i*3+1] = 0.0;
                 val[i*3] = 0.0;
+
+                // for (v = -yBound; v < yBound + adjustY; ++v) {
+                //     for (u = -xBound; u < xBound + adjustX; ++u) {
+                //         if ((x + u) >= 0 && (x + u) < width && y + v >= 0 && y + v < height) {
+                //             sm_s[channels * (width * (y+v) + (x+u)) + 2] = s[channels * (width * (y+v) + (x+u)) + 2];
+                //             sm_s[channels * (width * (y+v) + (x+u)) + 1] = s[channels * (width * (y+v) + (x+u)) + 1];
+                //             sm_s[channels * (width * (y+v) + (x+u)) + 0] = s[channels * (width * (y+v) + (x+u)) + 0];
+                //         }    
+                //     }
+                // }
+                // __syncthreads();
 
                 for (v = -yBound; v < yBound + adjustY; ++v) {
                     for (u = -xBound; u < xBound + adjustX; ++u) {
@@ -156,9 +175,9 @@ __global__ void sobel_cuda (unsigned char* s, unsigned char* t, unsigned height,
                             R = s[channels * (width * (y+v) + (x+u)) + 2];
                             G = s[channels * (width * (y+v) + (x+u)) + 1];
                             B = s[channels * (width * (y+v) + (x+u)) + 0];
-                            val[i*3+2] += R * sm[i][u + xBound][v + yBound];
-                            val[i*3+1] += G * sm[i][u + xBound][v + yBound];
-                            val[i*3+0] += B * sm[i][u + xBound][v + yBound];
+                            val[i*3+2] += R * sm_mask[i][u + xBound][v + yBound];
+                            val[i*3+1] += G * sm_mask[i][u + xBound][v + yBound];
+                            val[i*3+0] += B * sm_mask[i][u + xBound][v + yBound];
                         }    
                     }
                 }
@@ -212,7 +231,7 @@ int main(int argc, char** argv) {
 
     /* Hint 3 */
     // acclerate this function
-    sobel_cuda<<<3000, 1024>>>(cuda_mem_s, cuda_mem_t, height, width, channels);
+    sobel<<<block_num, thread_dim>>>(cuda_mem_s, cuda_mem_t, height, width, channels);
     // sobel(host_s, host_t, height, width, channels);
     
     /* Hint 4 */
