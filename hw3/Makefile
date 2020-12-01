@@ -1,5 +1,5 @@
-CC = gcc
-CXX = g++
+CC = clang
+CXX = clang++
 CXXFLAGS = -O3 -pthread -fopenmp
 CFLAGS = -O3 -lm -pthread -fopenmp
 TARGETS = hw3

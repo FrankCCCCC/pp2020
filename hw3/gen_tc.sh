@@ -11,3 +11,7 @@ echo -e "Validating..."
 g++ ./sample/validator.cc -o ./execs/validator
 ./execs/validator ./gen_testcase/mycase.in
 
+# Run
+echo -e "Solving..."
+bash compile.sh
+time ./execs/hw3 ./gen_testcase/mycase.in ./out/mycase.out

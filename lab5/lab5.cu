@@ -102,13 +102,15 @@ void write_png(const char* filename, png_bytep image, const unsigned height, con
 
 /* Hint 5 */
 // this function is called by host and executed by device
+// extern 
 __global__ void sobel_cuda (unsigned char* s, unsigned char* t, unsigned height, unsigned width, unsigned channels) {
     int  x, y, i, v, u;
     int  R, G, B;
-    double val[MASK_N*3] = {0.0};
+    float val[MASK_N*3] = {0.0};
     int adjustX, adjustY, xBound, yBound;
     int idx_x = threadIdx.x;
     int idx_y = blockIdx.x;
+    __shared__ int sm[MASK_N][MASK_X][MASK_Y];
 
     int mask[MASK_N][MASK_X][MASK_Y] = { 
         {{ -1, -4, -6, -4, -1},
@@ -122,6 +124,15 @@ __global__ void sobel_cuda (unsigned char* s, unsigned char* t, unsigned height,
          { -4, -8,  0,  8,  4}, 
          { -1, -2,  0,  2,  1}} 
     };
+
+    for(int i = 0; i < MASK_N; i++){
+        for(int j = 0; j < MASK_X; j++){
+            for(int k = 0; k < MASK_Y; k++){
+                sm[i][j][k] = mask[i][j][k];
+            }
+        }
+    }
+    __syncthreads();
 
     /* Hint 6 */
     // parallel job by blockIdx, blockDim, threadIdx 
@@ -145,17 +156,17 @@ __global__ void sobel_cuda (unsigned char* s, unsigned char* t, unsigned height,
                             R = s[channels * (width * (y+v) + (x+u)) + 2];
                             G = s[channels * (width * (y+v) + (x+u)) + 1];
                             B = s[channels * (width * (y+v) + (x+u)) + 0];
-                            val[i*3+2] += R * mask[i][u + xBound][v + yBound];
-                            val[i*3+1] += G * mask[i][u + xBound][v + yBound];
-                            val[i*3+0] += B * mask[i][u + xBound][v + yBound];
+                            val[i*3+2] += R * sm[i][u + xBound][v + yBound];
+                            val[i*3+1] += G * sm[i][u + xBound][v + yBound];
+                            val[i*3+0] += B * sm[i][u + xBound][v + yBound];
                         }    
                     }
                 }
             }
 
-            double totalR = 0.0;
-            double totalG = 0.0;
-            double totalB = 0.0;
+            float totalR = 0.0;
+            float totalG = 0.0;
+            float totalB = 0.0;
             for (i = 0; i < MASK_N; ++i) {
                 totalR += val[i * 3 + 2] * val[i * 3 + 2];
                 totalG += val[i * 3 + 1] * val[i * 3 + 1];
