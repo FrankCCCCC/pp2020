@@ -13,24 +13,25 @@
 #define MASK_X 5
 #define MASK_Y 5
 #define SCALE 8
+#define TH_DIM 4
 
-const dim3 thread_dim(2, 512);
-const int block_num = 2048;
+const dim3 thread_dim(TH_DIM, TH_DIM);
+const int block_num = 1024;
 
 /* Hint 7 */
 // this variable is used by device
-// int mask[MASK_N][MASK_X][MASK_Y] = { 
-//     {{ -1, -4, -6, -4, -1},
-//      { -2, -8,-12, -8, -2},
-//      {  0,  0,  0,  0,  0}, 
-//      {  2,  8, 12,  8,  2}, 
-//      {  1,  4,  6,  4,  1}},
-//     {{ -1, -2,  0,  2,  1}, 
-//      { -4, -8,  0,  8,  4}, 
-//      { -6,-12,  0, 12,  6}, 
-//      { -4, -8,  0,  8,  4}, 
-//      { -1, -2,  0,  2,  1}} 
-// };
+__constant__ int mask[MASK_N][MASK_X][MASK_Y] = { 
+    {{ -1, -4, -6, -4, -1},
+     { -2, -8,-12, -8, -2},
+     {  0,  0,  0,  0,  0}, 
+     {  2,  8, 12,  8,  2}, 
+     {  1,  4,  6,  4,  1}},
+    {{ -1, -2,  0,  2,  1}, 
+     { -4, -8,  0,  8,  4}, 
+     { -6,-12,  0, 12,  6}, 
+     { -4, -8,  0,  8,  4}, 
+     { -1, -2,  0,  2,  1}} 
+};
 
 int read_png(const char* filename, unsigned char** image, unsigned* height, 
              unsigned* width, unsigned* channels) {
@@ -103,45 +104,49 @@ void write_png(const char* filename, png_bytep image, const unsigned height, con
     fclose(fp);
 }
 
+// __device__ int get_mask(int *mask, int n, int x, int y){
+//     return mask[n * MASK_X * MASK_Y + x * MASK_Y + y];
+// }
+
 /* Hint 5 */
 // this function is called by host and executed by device
-extern __shared__ int sm_s[];
+// extern __shared__ int sm_s[];
 __global__ void sobel(unsigned char* s, unsigned char* t, unsigned height, unsigned width, unsigned channels) {
     int  x, y, i, v, u;
     int  R, G, B;
     float val[MASK_N*3] = {0.0};
-    
 
-    const int x_divisor = blockDim.x - 1;
-    const int x_width_div = width / x_divisor;
-    const int x_width_mod = width % x_divisor;
-    const int x_start = threadIdx.x * x_width_div;
-    const int x_width = threadIdx.x < blockDim.x - 1? x_start + x_width_div : x_start + x_width_mod;
+    // const int x_divisor = blockDim.x - 1;
+    // const int x_width_div = width / x_divisor;
+    // const int x_width_mod = width % x_divisor;
+    // const int x_start = threadIdx.x * x_width_div;
+    // const int x_width = threadIdx.x < blockDim.x - 1? x_start + x_width_div : x_start + x_width_mod;
+    // const int x_gap = 1;
+
+    const int x_start = threadIdx.x;
+    const int x_width = width;
+    const int x_gap = blockDim.x;
+
+    const int y_start = blockIdx.x * blockDim.y + threadIdx.y;
+    const int y_height = height;
+    const int y_gap = gridDim.x * blockDim.y;
     
     const int adjustX = (MASK_X % 2) ? 1 : 0;
     const int adjustY = (MASK_Y % 2) ? 1 : 0;
-    const int xBound = MASK_X /2;
-    const int yBound = MASK_Y /2;
+    const int xBound = MASK_X / 2;
+    const int yBound = MASK_Y / 2;
+
+    const int kernel_width = 2 * xBound + adjustX + TH_DIM - 1;
 
     __shared__ int sm_mask[MASK_N][MASK_X][MASK_Y];
-
-    int mask[MASK_N][MASK_X][MASK_Y] = { 
-        {{ -1, -4, -6, -4, -1},
-         { -2, -8,-12, -8, -2},
-         {  0,  0,  0,  0,  0}, 
-         {  2,  8, 12,  8,  2}, 
-         {  1,  4,  6,  4,  1}},
-        {{ -1, -2,  0,  2,  1}, 
-         { -4, -8,  0,  8,  4}, 
-         { -6,-12,  0, 12,  6}, 
-         { -4, -8,  0,  8,  4}, 
-         { -1, -2,  0,  2,  1}} 
-    };
+    __shared__ int sm_s[kernel_width * kernel_width * 3];
+    // printf("BLock %d, Thread (%d, %d) Created, Conv Box (%d : %d, %d : %d), Kernel Width: %d\n", blockIdx.x, threadIdx.x, threadIdx.y, \
+    //         -xBound, xBound + adjustX + blockDim.x - 1, -yBound,  yBound + adjustY + blockDim.y - 1, kernel_width);
 
     for(int i = 0; i < MASK_N; i++){
-        for(int j = 0; j < MASK_X; j++){
-            for(int k = 0; k < MASK_Y; k++){
-                sm_mask[i][j][k] = mask[i][j][k];
+        for(int x = threadIdx.x; x < MASK_X; x+=blockDim.x){
+            for(int y = threadIdx.y; y < MASK_Y; y+=blockDim.y){
+                sm_mask[i][x][y] = mask[i][x][y];
             }
         }
     }
@@ -149,35 +154,47 @@ __global__ void sobel(unsigned char* s, unsigned char* t, unsigned height, unsig
 
     /* Hint 6 */
     // parallel job by blockIdx, blockDim, threadIdx 
-    for (y = blockIdx.x * blockDim.y + threadIdx.y; y < height; y+=gridDim.x * blockDim.y) {
-    // for (y = 0; y < height; ++y) {
-        for (x = x_start; x < x_width; x+=1) {
-        // for (x = 0; x < width; ++x) {
+    for (y = y_start; y < y_height; y+=y_gap) {
+        for (x = x_start; x < x_width; x+=x_gap) {
             for (i = 0; i < MASK_N; ++i) {
                 val[i*3+2] = 0.0;
                 val[i*3+1] = 0.0;
                 val[i*3] = 0.0;
 
-                // for (v = -yBound; v < yBound + adjustY; ++v) {
-                //     for (u = -xBound; u < xBound + adjustX; ++u) {
-                //         if ((x + u) >= 0 && (x + u) < width && y + v >= 0 && y + v < height) {
-                //             sm_s[channels * (width * (y+v) + (x+u)) + 2] = s[channels * (width * (y+v) + (x+u)) + 2];
-                //             sm_s[channels * (width * (y+v) + (x+u)) + 1] = s[channels * (width * (y+v) + (x+u)) + 1];
-                //             sm_s[channels * (width * (y+v) + (x+u)) + 0] = s[channels * (width * (y+v) + (x+u)) + 0];
-                //         }    
-                //     }
-                // }
-                // __syncthreads();
-
-                for (v = -yBound; v < yBound + adjustY; ++v) {
-                    for (u = -xBound; u < xBound + adjustX; ++u) {
+                for (v = -yBound; v < yBound + adjustY + TH_DIM - 1 - threadIdx.y; v+=1) {
+                    for (u = -xBound; u < xBound + adjustX + TH_DIM - 1 - threadIdx.x; u+=1) {
                         if ((x + u) >= 0 && (x + u) < width && y + v >= 0 && y + v < height) {
-                            R = s[channels * (width * (y+v) + (x+u)) + 2];
-                            G = s[channels * (width * (y+v) + (x+u)) + 1];
-                            B = s[channels * (width * (y+v) + (x+u)) + 0];
+                            int base = channels * (kernel_width * (v + yBound + threadIdx.y) + (u + xBound + threadIdx.x));
+                            sm_s[base + 2] = s[channels * (width * (y+v) + (x+u)) + 2];
+                            sm_s[base + 1] = s[channels * (width * (y+v) + (x+u)) + 1];
+                            sm_s[base + 0] = s[channels * (width * (y+v) + (x+u)) + 0];
+                        }
+                    }
+                }
+                __syncthreads();
+
+                for (v = -yBound; v < yBound + adjustY; v++) {
+                    for (u = -xBound; u < xBound + adjustX; u++) {
+                        if ((x + u) >= 0 && (x + u) < width && y + v >= 0 && y + v < height) {
+                            int base = channels * (kernel_width * (v + yBound + threadIdx.y) + (u + xBound + threadIdx.x));
+                            // sm_s[base + 2] = s[channels * (width * (y+v) + (x+u)) + 2];
+                            // sm_s[base + 1] = s[channels * (width * (y+v) + (x+u)) + 1];
+                            // sm_s[base + 0] = s[channels * (width * (y+v) + (x+u)) + 0];
+                            // __syncthreads();
+
+                            R = sm_s[base + 2];
+                            G = sm_s[base + 1];
+                            B = sm_s[base + 0];
+
+                            // R = s[channels * (width * (y+v) + (x+u)) + 2];
+                            // G = s[channels * (width * (y+v) + (x+u)) + 1];
+                            // B = s[channels * (width * (y+v) + (x+u)) + 0];
+                            
                             val[i*3+2] += R * sm_mask[i][u + xBound][v + yBound];
                             val[i*3+1] += G * sm_mask[i][u + xBound][v + yBound];
                             val[i*3+0] += B * sm_mask[i][u + xBound][v + yBound];
+
+                            // printf("B(%d (%d %d)): RGB(%d %d %d) | sm_s(%d %d %d)\n", blockIdx.x, threadIdx.x, threadIdx.y, R, G, B, sm_s[sm_base_idx + 2], sm_s[sm_base_idx + 1], sm_s[sm_base_idx + 0]);
                         }    
                     }
                 }
@@ -214,6 +231,8 @@ int main(int argc, char** argv) {
     unsigned char* host_s = NULL;
     read_png(argv[1], &host_s, &height, &width, &channels);
     unsigned char* host_t = (unsigned char*) malloc(height * width * channels * sizeof(unsigned char));
+
+    printf("Channel: %d\n", channels);
     
     /* Hint 1 */
     // cudaMalloc(...) for device src and device dst
