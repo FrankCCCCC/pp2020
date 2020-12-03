@@ -14,10 +14,10 @@
 #define MASK_X 5
 #define MASK_Y 5
 #define SCALE 8
-#define TH_DIM 32
+#define TH_DIM 4
 
 const dim3 thread_dim(TH_DIM, TH_DIM);
-const int block_num = 4096;
+const int block_num = 1024;
 
 /* Hint 7 */
 // this variable is used by device
@@ -140,7 +140,7 @@ __global__ void sobel(unsigned char* s, unsigned char* t, unsigned height, unsig
     const int kernel_width = 2 * xBound + adjustX + TH_DIM - 1;
 
     // __shared__ int sm_mask[MASK_N][MASK_X][MASK_Y];
-    __shared__ unsigned char sm_s[40000];
+    __shared__ int sm_s[10000];
     // printf("BLock %d, Thread (%d, %d) Created, Conv Box (%d : %d, %d : %d), Kernel Width: %d\n", blockIdx.x, threadIdx.x, threadIdx.y, \
     //         -xBound, xBound + adjustX + blockDim.x - 1, -yBound,  yBound + adjustY + blockDim.y - 1, kernel_width);
 
@@ -170,24 +170,22 @@ __global__ void sobel(unsigned char* s, unsigned char* t, unsigned height, unsig
     // parallel job by blockIdx, blockDim, threadIdx 
     for (y = y_start; y < y_height; y+=y_gap) {
         for (x = x_start; x < x_width; x+=x_gap) {
-
-            for (v = -yBound; v < yBound + adjustY; v+=1) {
-                for (u = -xBound; u < xBound + adjustX; u+=1) {
-                    if ((x + u) >= 0 && (x + u) < width && y + v >= 0 && y + v < height) {
-                        int base = channels * (kernel_width * (v + yBound + threadIdx.y) + (u + xBound + threadIdx.x));
-                        sm_s[base + 2] = s[channels * (width * (y+v) + (x+u)) + 2];
-                        sm_s[base + 1] = s[channels * (width * (y+v) + (x+u)) + 1];
-                        sm_s[base + 0] = s[channels * (width * (y+v) + (x+u)) + 0];
-                    }
-                }
-            }
-            __syncthreads();
             for (i = 0; i < MASK_N; ++i) {
                 val[i*3+2] = 0.0;
                 val[i*3+1] = 0.0;
                 val[i*3] = 0.0;
 
-                
+                for (v = -yBound; v < yBound + adjustY; v+=1) {
+                    for (u = -xBound; u < xBound + adjustX; u+=1) {
+                        if ((x + u) >= 0 && (x + u) < width && y + v >= 0 && y + v < height) {
+                            int base = channels * (kernel_width * (v + yBound + threadIdx.y) + (u + xBound + threadIdx.x));
+                            sm_s[base + 2] = s[channels * (width * (y+v) + (x+u)) + 2];
+                            sm_s[base + 1] = s[channels * (width * (y+v) + (x+u)) + 1];
+                            sm_s[base + 0] = s[channels * (width * (y+v) + (x+u)) + 0];
+                        }
+                    }
+                }
+                __syncthreads();
 
                 for (v = -yBound; v < yBound + adjustY; v++) {
                     for (u = -xBound; u < xBound + adjustX; u++) {
