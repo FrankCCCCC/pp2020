@@ -17,7 +17,7 @@
 #define TH_DIM 32
 
 const dim3 thread_dim(TH_DIM, TH_DIM);
-const int block_num = 4096;
+const int block_num = 5000;
 
 /* Hint 7 */
 // this variable is used by device
@@ -182,12 +182,11 @@ __global__ void sobel(unsigned char* s, unsigned char* t, unsigned height, unsig
                 }
             }
             __syncthreads();
+
             for (i = 0; i < MASK_N; ++i) {
                 val[i*3+2] = 0.0;
                 val[i*3+1] = 0.0;
                 val[i*3] = 0.0;
-
-                
 
                 for (v = -yBound; v < yBound + adjustY; v++) {
                     for (u = -xBound; u < xBound + adjustX; u++) {
