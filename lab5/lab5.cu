@@ -171,8 +171,8 @@ __global__ void sobel(unsigned char* s, unsigned char* t, unsigned height, unsig
     for (y = y_start; y < y_height; y+=y_gap) {
         for (x = x_start; x < x_width; x+=x_gap) {
 
-            for (v = -yBound; v < yBound + adjustY; v+=1) {
-                for (u = -xBound; u < xBound + adjustX; u+=1) {
+            for (v = -yBound; v < yBound + adjustY; v+=2) {
+                for (u = -xBound; u < xBound + adjustX; u+=2) {
                     if ((x + u) >= 0 && (x + u) < width && y + v >= 0 && y + v < height) {
                         int base = channels * (kernel_width * (v + yBound + threadIdx.y) + (u + xBound + threadIdx.x));
                         sm_s[base + 2] = s[channels * (width * (y+v) + (x+u)) + 2];
@@ -192,10 +192,6 @@ __global__ void sobel(unsigned char* s, unsigned char* t, unsigned height, unsig
                     for (u = -xBound; u < xBound + adjustX; u++) {
                         if ((x + u) >= 0 && (x + u) < width && y + v >= 0 && y + v < height) {
                             int base = channels * (kernel_width * (v + yBound + threadIdx.y) + (u + xBound + threadIdx.x));
-                            // sm_s[base + 2] = s[channels * (width * (y+v) + (x+u)) + 2];
-                            // sm_s[base + 1] = s[channels * (width * (y+v) + (x+u)) + 1];
-                            // sm_s[base + 0] = s[channels * (width * (y+v) + (x+u)) + 0];
-                            // __syncthreads();
 
                             R = sm_s[base + 2];
                             G = sm_s[base + 1];
