@@ -5,7 +5,7 @@
 
 #define SIZEOFINT sizeof(int)
 
-#define TH_DIM 32
+#define TH_DIM 5
 const dim3 thread_dim(TH_DIM, TH_DIM);
 const int block_num = 5000;
 
@@ -26,7 +26,7 @@ const int V = 4000;
 // int ceil(int a, int b);
 // void cal(int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height);
 
-const int B = 32;
+const int B = TH_DIM;
 int n, m;
 int *Dist;
 int *Dist_cuda;
@@ -38,8 +38,7 @@ void show_mat(int *start_p, int vertex_num){
                 printf("INF\t  ");
             }else{
                 printf("%d\t  ", start_p[i * vertex_num + j]);
-            }
-            
+            }   
         }
         printf("\n");
     }
@@ -105,43 +104,171 @@ void output(char* outFileName) {
 }
 
 __global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
+    const int Share_Mem_Size = 54;
     int block_end_x = block_start_x + block_height;
     int block_end_y = block_start_y + block_width;
-    __shared__ int s_m[100][100];
+    const char *phases[4] = {"1", "2-1 i=k", "2-2 k=j", "3"};
+    int phase = 0;
+    // __shared__ int s_m[100][100];
+    // i-j block
+    int (*AM)[Share_Mem_Size][Share_Mem_Size];
+    __shared__ int a[Share_Mem_Size][Share_Mem_Size];
+    // i-k block
+    int (*BM)[Share_Mem_Size][Share_Mem_Size];
+    __shared__ int b[Share_Mem_Size][Share_Mem_Size];
+    // k-j block
+    int (*CM)[Share_Mem_Size][Share_Mem_Size];
+    __shared__ int c[Share_Mem_Size][Share_Mem_Size];
+
     // printf("%d\n", dist[1]);
 
     for (int b_i = block_start_x; b_i < block_end_x; b_i++) {
         for (int b_j = block_start_y; b_j < block_end_y; b_j++) {
             // To calculate B*B elements in the block (b_i, b_j)
             // For each block, it need to compute B times
+            
+            // Calculate the index inside the block
+            int block_internal_start_x = b_i * B;
+            int block_internal_end_x = (b_i + 1) * B;
+            int block_internal_start_y = b_j * B;
+            int block_internal_end_y = (b_j + 1) * B;
 
-            // for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-            //     for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                    
-            //     }
-            // }
-
+            if (block_internal_end_x > vertex_num) block_internal_end_x = vertex_num;
+            if (block_internal_end_y > vertex_num) block_internal_end_y = vertex_num;
+            
+            // Copy the element of the block to share memory
+            int block_in_i = block_internal_start_x + threadIdx.x < block_internal_end_x? block_internal_start_x + threadIdx.x : block_internal_end_x;
+            int block_in_j = block_internal_start_y + threadIdx.y < block_internal_end_y? block_internal_start_y + threadIdx.y : block_internal_end_y;
+            int block_in_base_k = Round * B;
+            if(Round == b_i && Round == b_j){
+                // Phase 1
+                phase = 0;
+                AM = &a;
+                BM = &a;
+                CM = &a;
+                a[threadIdx.x][threadIdx.y] = dist[block_in_i * vertex_num + block_in_j];
+            }else if(Round == b_i){
+                // Phase 2, i=k
+                phase = 1;
+                AM = &a;
+                BM = &b;
+                CM = &a;
+                a[threadIdx.x][threadIdx.y] = dist[block_in_i * vertex_num + block_in_j];
+                b[threadIdx.x][threadIdx.y] = dist[block_in_i * vertex_num + (block_in_base_k + threadIdx.y)];
+                // c[threadIdx.x][threadIdx.y] = dist[(block_in_base_k + threadIdx.x) * vertex_num + block_in_j];
+            }else if(Round == b_j){
+                // Phase 2, k=j
+                phase = 2;
+                AM = &a;
+                BM = &a;
+                CM = &c;
+                a[threadIdx.x][threadIdx.y] = dist[block_in_i * vertex_num + block_in_j];
+                c[threadIdx.x][threadIdx.y] = dist[(block_in_base_k + threadIdx.x) * vertex_num + block_in_j];
+                // b[threadIdx.x][threadIdx.y] = dist[block_in_i * vertex_num + (block_in_base_k + threadIdx.y)];
+            }else{
+                // Phase 3
+                phase = 3;
+                AM = &a;
+                BM = &b;
+                CM = &c;
+                a[threadIdx.x][threadIdx.y] = dist[block_in_i * vertex_num + block_in_j];
+                b[threadIdx.x][threadIdx.y] = dist[block_in_i * vertex_num + (block_in_base_k + threadIdx.y)];
+                c[threadIdx.x][threadIdx.y] = dist[(block_in_base_k + threadIdx.x) * vertex_num + block_in_j];
+            }
+            __syncthreads();
+            
+            // printf("");
             for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
                 // To calculate original index of elements in the block (b_i, b_j)
                 // For instance, original index of (0,0) in block (1,2) is (2,5) for V=6,B=2
-                int block_internal_start_x = b_i * B;
-                int block_internal_end_x = (b_i + 1) * B;
-                int block_internal_start_y = b_j * B;
-                int block_internal_end_y = (b_j + 1) * B;
-
-                if (block_internal_end_x > vertex_num) block_internal_end_x = vertex_num;
-                if (block_internal_end_y > vertex_num) block_internal_end_y = vertex_num;
-
-                for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-                    for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                        int d = dist[i * vertex_num + k] + dist[k * vertex_num + j];
-                        if (d < dist[i * vertex_num + j]) {
-                            dist[i * vertex_num + j] = d;
+                
+                if(threadIdx.x == 0 && threadIdx.y == 0){
+                    printf("------------------\nInternal (%d:%d, %d:%d) Phase %s\n", block_internal_start_x, block_internal_end_x + B, block_internal_start_y, block_internal_end_y + B, phases[phase]);
+                    for (int i = block_internal_start_x; i < block_internal_end_x; i++) {
+                        for (int j = block_internal_start_y; j < block_internal_end_y; j++) {
+                            // int t = s_m[i - block_internal_start_x][j - block_internal_start_y];
+                            int t = (*AM)[i - block_internal_start_x][j - block_internal_start_y];
+                            if(t == INF){
+                                printf("INF\t");
+                            }else{
+                                printf("%d\t", t);
+                            }
                         }
-                        // dist[i * vertex_num + j] = 2;
+                        printf("\n");
                     }
+                    printf("---\n");
+                    for (int i = block_internal_start_x; i < block_internal_end_x; i++) {
+                        for (int j = block_internal_start_y; j < block_internal_end_y; j++) {
+                            int t = (*BM)[i - block_internal_start_x][j - block_internal_start_y];
+                            if(t == INF){
+                                printf("INF\t");
+                            }else{
+                                printf("%d\t", t);
+                            }
+                        }
+                        printf("\n");
+                    }
+                    printf("---\n");
+                    for (int i = block_internal_start_x; i < block_internal_end_x; i++) {
+                        for (int j = block_internal_start_y; j < block_internal_end_y; j++) {
+                            int t = (*CM)[i - block_internal_start_x][j - block_internal_start_y];
+                            if(t == INF){
+                                printf("INF\t");
+                            }else{
+                                printf("%d\t", t);
+                            }
+                        }
+                        printf("\n");
+                    }
+                    printf("Internal\n");
                 }
-                __syncthreads();
+
+                // for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
+                //     for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
+                //         int _i = i - block_internal_start_x, _j = j - block_internal_start_y, _k = k % B + B;
+                //         int d = s_m[_i][_k] + s_m[_k][_j];
+                //         if (d < s_m[_i][_j]) {
+                //             printf("%d (i%d: %d, j%d: %d) -> %d = %d (i%d: %d, k%d: %d) + %d (k%d: %d, j%d: %d)\n", s_m[_i][_j], i, _i, j, _j, d, s_m[_i][_k], i, _i, k, _k, s_m[_k][_j], k, _k, j, _j);
+                //             s_m[_i][_j] = d;
+                //             dist[i * vertex_num + j] = d;
+                //         }else{
+                //             printf("%d (i%d: %d, j%d: %d) || %d = %d (i%d: %d, k%d: %d) + %d (k%d: %d, j%d: %d)\n", s_m[_i][_j], i, _i, j, _j, d, s_m[_i][_k], i, _i, k, _k, s_m[_k][_j], k, _k, j, _j);
+                //             // printf("%d (i: %d, j: %d) || %d = %d (i: %d, k: %d) + %d (k: %d, j: %d)\n", s_m[_i][_j], _i, _j, d, s_m[_i][_k], _i, _k, s_m[_k][_j], _k, _j);
+                //         }
+                //     }
+                // }
+                // for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
+                //     for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
+                //         int _i = i - block_internal_start_x, _j = j - block_internal_start_y, _k = k % B;
+                        
+                //         int d = (*BM)[_i][_k] + (*CM)[_k][_j];
+                //         __syncthreads();
+                //         if (d < (*AM)[_i][_j]) {
+                //             // printf("%d (i: %d, j: %d) -> %d = %d (i: %d, k: %d) + %d (k: %d, j: %d)\n", (*AM)[_i][_j], _i, _j, d, (*BM)[_i][_k], _i, _k, (*CM)[_k][_j], _k, _j);
+                //             (*AM)[_i][_j] = d;
+                //             dist[i * vertex_num + j] = d;
+                //             // dist[block_in_i * vertex_num + block_in_j] = a[threadIdx.x][threadIdx.y];
+                //         }else{
+                //             // printf("%d (i: %d, j: %d) || %d = %d (i: %d, k: %d) + %d (k: %d, j: %d)\n", (*AM)[_i][_j], _i, _j, d, (*BM)[_i][_k], _i, _k, (*CM)[_k][_j], _k, _j);
+                //         }
+                //         __syncthreads();
+                //     }
+                // }
+                int i = block_internal_start_x + threadIdx.x, j = block_internal_start_y + threadIdx.y;
+                if(i < block_internal_end_x && j < block_internal_end_y){
+                    int _i = threadIdx.x, _j = threadIdx.y, _k = k % B;
+                    int d = (*BM)[_i][_k] + (*CM)[_k][_j];
+                    __syncthreads();
+                    if (d < (*AM)[_i][_j]) {
+                        // printf("%d (i: %d, j: %d) -> %d = %d (i: %d, k: %d) + %d (k: %d, j: %d)\n", (*AM)[_i][_j], _i, _j, d, (*BM)[_i][_k], _i, _k, (*CM)[_k][_j], _k, _j);
+                        (*AM)[_i][_j] = d;
+                        dist[i * vertex_num + j] = d;
+                        // dist[block_in_i * vertex_num + block_in_j] = a[threadIdx.x][threadIdx.y];
+                    }else{
+                        // printf("%d (i: %d, j: %d) || %d = %d (i: %d, k: %d) + %d (k: %d, j: %d)\n", (*AM)[_i][_j], _i, _j, d, (*BM)[_i][_k], _i, _k, (*CM)[_k][_j], _k, _j);
+                    }
+                    __syncthreads();
+                }
             }
         }
     }
@@ -234,7 +361,7 @@ int main(int argc, char* argv[]) {
     input(argv[1]);
     // show_mat(getDistAddr(0, 0, n), n);
     setup_DistCuda(n);
-    printf("Vertice: %d, Edge: %d\n", n, m);
+    printf("Vertice: %d, Edge: %d, B: %d\n", n, m, B);
     // block_FW(B);
     block_FW_cuda(B);
     back_DistCuda(n);
