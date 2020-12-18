@@ -5,7 +5,7 @@
 
 #define SIZEOFINT sizeof(int)
 
-#define TH_DIM 5
+#define TH_DIM 17
 const dim3 thread_dim(TH_DIM, TH_DIM);
 const int block_num = 5000;
 
@@ -263,9 +263,9 @@ __global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Rou
                         // printf("%d (i: %d, j: %d) -> %d = %d (i: %d, k: %d) + %d (k: %d, j: %d)\n", (*AM)[_i][_j], _i, _j, d, (*BM)[_i][_k], _i, _k, (*CM)[_k][_j], _k, _j);
                         (*AM)[_i][_j] = d;
                         dist[i * vertex_num + j] = d;
-                        // dist[block_in_i * vertex_num + block_in_j] = a[threadIdx.x][threadIdx.y];
+                        dist[block_in_i * vertex_num + block_in_j] = a[threadIdx.x][threadIdx.y];
                     }else{
-                        // printf("%d (i: %d, j: %d) || %d = %d (i: %d, k: %d) + %d (k: %d, j: %d)\n", (*AM)[_i][_j], _i, _j, d, (*BM)[_i][_k], _i, _k, (*CM)[_k][_j], _k, _j);
+                        printf("%d (i: %d, j: %d) || %d = %d (i: %d, k: %d) + %d (k: %d, j: %d)\n", (*AM)[_i][_j], _i, _j, d, (*BM)[_i][_k], _i, _k, (*CM)[_k][_j], _k, _j);
                     }
                     __syncthreads();
                 }
@@ -367,7 +367,7 @@ int main(int argc, char* argv[]) {
     back_DistCuda(n);
     // show_mat(getDistAddr(0, 0, n), n);
     
-    output(argv[2]);
+    // output(argv[2]);
     // show_mat(getDistAddr(0, 0, n), n);
     return 0;
 }
