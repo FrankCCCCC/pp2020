@@ -5,7 +5,7 @@
 
 #define SIZEOFINT sizeof(int)
 
-const dim3 block_dim(32, 16);
+const dim3 block_dim(32, 32);
 
 const int INF = ((1 << 30) - 1);
 
@@ -152,6 +152,7 @@ __global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Rou
                 }
             }else{BM = &a;}
             __syncthreads();
+
             // Relax Path
             for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
                 for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
