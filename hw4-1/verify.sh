@@ -7,12 +7,13 @@ rm ./execs/${program}
 echo -e "Compiling..."
 bash compile.sh
 
-runner='srun -n 1 --gres=gpu:1'
-# tcs=(0 1 2)
-# tcs=(0 1 2 3 4 5 6 7 15 17)
+# runner='srun -n 1 --gres=gpu:1'
+runner=''
+# tcs=(0 4)
+tcs=(0 1 2 3 4 5 6 7 15 17)
 # tcs=(0 1 2 3 4 5 6 7 15)
 # tcs=(0 17 18)
-tcs=(0 5)
+# tcs=(0 5)
 tc_num=${#tcs[@]}
 # vatc_numr=$((tc_num+1))
 
