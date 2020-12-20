@@ -5,28 +5,11 @@
 
 #define SIZEOFINT sizeof(int)
 
-#define TH_DIM 32
-const dim3 thread_dim(TH_DIM, TH_DIM);
-const int block_num = 5000;
+const dim3 block_dim(32, 32);
 
 const int INF = ((1 << 30) - 1);
-const int V = 4000;
-// void show_mat(int *, int);
-// void malloc_Dist(int);
-// void setup_DistCuda(int);
-// int getDist(int ,int, int);
-// int *getDistAddr(int ,int, int);
-// void setDist(int ,int, int, int);
-// void input(char* inFileName);
-// void output(char* outFileName);
 
-// void block_FW_cuda(int B);
-// __global__ void cal_cuda(int *Dist, int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height);
-// void block_FW(int B);
-// int ceil(int a, int b);
-// void cal(int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height);
-
-const int B = 32;
+const int B = 64;
 int n, m;
 int *Dist;
 int *Dist_cuda;
@@ -105,43 +88,90 @@ void output(char* outFileName) {
 }
 
 __global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
+    const int Share_Mem_Size = 64;
     int block_end_x = block_start_x + block_height;
     int block_end_y = block_start_y + block_width;
-    __shared__ int s_m[100][100];
     // printf("%d\n", dist[1]);
+    // i-j block
+    int (*AM)[Share_Mem_Size][Share_Mem_Size];
+    __shared__ int a[Share_Mem_Size][Share_Mem_Size];
+    // i-k block
+    int (*BM)[Share_Mem_Size][Share_Mem_Size];
+    __shared__ int b[Share_Mem_Size][Share_Mem_Size];
+    // k-j block
+    int (*CM)[Share_Mem_Size][Share_Mem_Size];
+    __shared__ int c[Share_Mem_Size][Share_Mem_Size];
 
-    for (int b_i = block_start_x; b_i < block_end_x; b_i++) {
-        for (int b_j = block_start_y; b_j < block_end_y; b_j++) {
+    for (int b_i = block_start_x + blockIdx.x; b_i < block_end_x; b_i+=gridDim.x) {
+        for (int b_j = block_start_y + blockIdx.y; b_j < block_end_y; b_j+=gridDim.y) {
             // To calculate B*B elements in the block (b_i, b_j)
             // For each block, it need to compute B times
 
-            // for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-            //     for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                    
-            //     }
+            // To calculate original index of elements in the block (b_i, b_j)
+            // For instance, original index of (0,0) in block (1,2) is (2,5) for V=6,B=2
+            int block_internal_start_x = b_i * B;
+            int block_internal_end_x = (b_i + 1) * B;
+            int block_internal_start_y = b_j * B;
+            int block_internal_end_y = (b_j + 1) * B;
+
+            if (block_internal_end_x > vertex_num) block_internal_end_x = vertex_num;
+            if (block_internal_end_y > vertex_num) block_internal_end_y = vertex_num;
+            
+            // if(threadIdx.x == 0 && threadIdx.y == 0){
+            //     printf("(%d %d) A(%d:%d, %d:%d) B(%d:%d, %d:%d) C(%d:%d, %d:%d) CAL(%d:%d, %d:%d, %d:%d)\n", 
+            //            blockDim.x, blockDim.y, 
+            //            block_internal_start_x + threadIdx.x, block_internal_end_x, block_internal_start_y + threadIdx.y, block_internal_end_y,
+            //            block_internal_start_x + threadIdx.x, block_internal_end_x, Round * B, (Round + 1) * B < vertex_num? (Round + 1) * B : vertex_num,
+            //            Round * B, (Round + 1) * B < vertex_num? (Round + 1) * B : vertex_num, block_internal_start_y + threadIdx.y, block_internal_end_y,
+            //            block_internal_start_x + threadIdx.x, block_internal_end_x, block_internal_start_y + threadIdx.y, block_internal_end_y, Round * B, (Round + 1) * B < vertex_num? (Round + 1) * B : vertex_num
+            //         );
             // }
+            
+            AM = &a;
+            for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
+                for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
+                    a[i - block_internal_start_x][j - block_internal_start_y] = dist[i * vertex_num + j];
+                }
+            }
 
+            if(Round != b_i){
+                CM = &c;
+                for (int k = Round * B + threadIdx.x; k < (Round + 1) * B && k < vertex_num; k+=blockDim.x) {
+                    for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
+                        c[k - Round * B][j - block_internal_start_y] = dist[k * vertex_num + j];
+                    }
+                }
+            }else{CM = &a;}
+
+            if(Round != b_j){
+                BM = &b;
+                for (int k = Round * B + threadIdx.y; k < (Round + 1) * B && k < vertex_num; k+=blockDim.y) {
+                    for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
+                        b[i - block_internal_start_x][k - Round * B] = dist[i * vertex_num + k];
+                    }
+                }
+            }else{BM = &a;}
+            __syncthreads();
+
+            // Relax Path
             for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
-                // To calculate original index of elements in the block (b_i, b_j)
-                // For instance, original index of (0,0) in block (1,2) is (2,5) for V=6,B=2
-                int block_internal_start_x = b_i * B;
-                int block_internal_end_x = (b_i + 1) * B;
-                int block_internal_start_y = b_j * B;
-                int block_internal_end_y = (b_j + 1) * B;
-
-                if (block_internal_end_x > vertex_num) block_internal_end_x = vertex_num;
-                if (block_internal_end_y > vertex_num) block_internal_end_y = vertex_num;
-
                 for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
                     for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                        int d = dist[i * vertex_num + k] + dist[k * vertex_num + j];
-                        if (d < dist[i * vertex_num + j]) {
-                            dist[i * vertex_num + j] = d;
+                        int d = (*BM)[i - block_internal_start_x][k - Round * B] + (*CM)[k - Round * B][j - block_internal_start_y];
+                        // __syncthreads();
+                        if (d < (*AM)[i - block_internal_start_x][j - block_internal_start_y]) {
+                            (*AM)[i - block_internal_start_x][j - block_internal_start_y] = d;
+                            // dist[i * vertex_num + j] = d;
                         }
-                        // dist[i * vertex_num + j] = 2;
                     }
                 }
                 __syncthreads();
+            }
+            // Move modified block to global memory
+            for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
+                for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
+                    dist[i * vertex_num + j] = (*AM)[i - block_internal_start_x][j - block_internal_start_y];
+                }
             }
         }
     }
@@ -150,92 +180,34 @@ __global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Rou
 void block_FW_cuda(int B) {
     int round = (n + B - 1) / B;
     for (int r = 0; r < round; r++) {
-        printf("Round: %d in total: %d\n", r, round);
+        // printf("Round: %d in total: %d\n", r, round);
         fflush(stdout);
         /* Phase 1*/
-        cal_cuda<<<1, thread_dim>>>(Dist_cuda, n, m, B, r, r, r, 1, 1);
+        cal_cuda<<<1, block_dim>>>(Dist_cuda, n, m, B, r, r, r, 1, 1);
 
         /* Phase 2*/
-        cal_cuda<<<1, thread_dim>>>(Dist_cuda, n, m, B, r, r, 0, r, 1);
-        cal_cuda<<<1, thread_dim>>>(Dist_cuda, n, m, B, r, r, r + 1, round - r - 1, 1);
-        cal_cuda<<<1, thread_dim>>>(Dist_cuda, n, m, B, r, 0, r, 1, r);
-        cal_cuda<<<1, thread_dim>>>(Dist_cuda, n, m, B, r, r + 1, r, 1, round - r - 1);
+        cal_cuda<<<r, block_dim>>>(Dist_cuda, n, m, B, r, r, 0, r, 1);
+        cal_cuda<<<round - r - 1, block_dim>>>(Dist_cuda, n, m, B, r, r, r + 1, round - r - 1, 1);
+        cal_cuda<<<r, block_dim>>>(Dist_cuda, n, m, B, r, 0, r, 1, r);
+        cal_cuda<<<round - r - 1, block_dim>>>(Dist_cuda, n, m, B, r, r + 1, r, 1, round - r - 1);
 
         /* Phase 3*/
-        cal_cuda<<<1, thread_dim>>>(Dist_cuda, n, m, B, r, 0, 0, r, r);
-        cal_cuda<<<1, thread_dim>>>(Dist_cuda, n, m, B, r, 0, r + 1, round - r - 1, r);
-        cal_cuda<<<1, thread_dim>>>(Dist_cuda, n, m, B, r, r + 1, 0, r, round - r - 1);
-        cal_cuda<<<1, thread_dim>>>(Dist_cuda, n, m, B, r, r + 1, r + 1, round - r - 1, round - r - 1);
+        const dim3 grid_dim0(r, r);
+        const dim3 grid_dim1(round - r - 1, r);
+        const dim3 grid_dim2(r, round - r - 1);
+        const dim3 grid_dim3(round - r - 1, round - r - 1);
+        cal_cuda<<<grid_dim0, block_dim>>>(Dist_cuda, n, m, B, r, 0, 0, r, r);
+        cal_cuda<<<grid_dim1, block_dim>>>(Dist_cuda, n, m, B, r, 0, r + 1, round - r - 1, r);
+        cal_cuda<<<grid_dim2, block_dim>>>(Dist_cuda, n, m, B, r, r + 1, 0, r, round - r - 1);
+        cal_cuda<<<grid_dim3, block_dim>>>(Dist_cuda, n, m, B, r, r + 1, r + 1, round - r - 1, round - r - 1);
     }
 }
-
-void cal(int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
-    int block_end_x = block_start_x + block_height;
-    int block_end_y = block_start_y + block_width;
-
-    for (int b_i = block_start_x; b_i < block_end_x; b_i++) {
-        for (int b_j = block_start_y; b_j < block_end_y; b_j++) {
-            // To calculate B*B elements in the block (b_i, b_j)
-            // For each block, it need to compute B times            
-
-            for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
-                // To calculate original index of elements in the block (b_i, b_j)
-                // For instance, original index of (0,0) in block (1,2) is (2,5) for V=6,B=2
-                int block_internal_start_x = b_i * B;
-                int block_internal_end_x = (b_i + 1) * B;
-                int block_internal_start_y = b_j * B;
-                int block_internal_end_y = (b_j + 1) * B;
-
-                if (block_internal_end_x > vertex_num) block_internal_end_x = vertex_num;
-                if (block_internal_end_y > vertex_num) block_internal_end_y = vertex_num;
-
-                for (int i = block_internal_start_x; i < block_internal_end_x; i++) {
-                    for (int j = block_internal_start_y; j < block_internal_end_y; j++) {
-                        // if (Dist[i][k] + Dist[k][j] < Dist[i][j]) {
-                        //     Dist[i][j] = Dist[i][k] + Dist[k][j];
-                        // }
-                        if (getDist(i, k, vertex_num) + getDist(k, j, vertex_num) < getDist(i, j, vertex_num)) {
-                            setDist(i, j, getDist(i, k, vertex_num) + getDist(k, j, vertex_num), vertex_num);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-int ceil(int a, int b) { return (a + b - 1) / b; }
-
-void block_FW(int B) {
-    int round = ceil(n, B);
-    for (int r = 0; r < round; r++) {
-        printf("Round: %d in total: %d\n", r, round);
-        fflush(stdout);
-        /* Phase 1*/
-        cal(n, m, B, r, r, r, 1, 1);
-
-        /* Phase 2*/
-        cal(n, m, B, r, r, 0, r, 1);
-        cal(n, m, B, r, r, r + 1, round - r - 1, 1);
-        cal(n, m, B, r, 0, r, 1, r);
-        cal(n, m, B, r, r + 1, r, 1, round - r - 1);
-
-        /* Phase 3*/
-        cal(n, m, B, r, 0, 0, r, r);
-        cal(n, m, B, r, 0, r + 1, round - r - 1, r);
-        cal(n, m, B, r, r + 1, 0, r, round - r - 1);
-        cal(n, m, B, r, r + 1, r + 1, round - r - 1, round - r - 1);
-    }
-}
-
-
 
 int main(int argc, char* argv[]) {
     input(argv[1]);
     // show_mat(getDistAddr(0, 0, n), n);
     setup_DistCuda(n);
-    printf("Vertice: %d, Edge: %d\n", n, m);
-    // block_FW(B);
+    printf("Vertice: %d, Edge: %d, B: %d\n", n, m, B);
     block_FW_cuda(B);
     back_DistCuda(n);
     // show_mat(getDistAddr(0, 0, n), n);

@@ -13,7 +13,7 @@ runner=''
 tcs=(0 1 2 3 4 5 6 7 15 17)
 # tcs=(0 1 2 3 4 5 6 7 15)
 # tcs=(0 17 18)
-# tcs=(0 6)
+# tcs=(0 21)
 tc_num=${#tcs[@]}
 # vatc_numr=$((tc_num+1))
 
