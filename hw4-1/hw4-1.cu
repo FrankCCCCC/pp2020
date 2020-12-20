@@ -5,9 +5,9 @@
 
 #define SIZEOFINT sizeof(int)
 const int INF = ((1 << 30) - 1);
-const int blockdim_x = 8, blockdim_y = 32;
+const int blockdim_x = 8, blockdim_y = 64;
 const dim3 block_dim(blockdim_x, blockdim_y);
-const int B = 32;
+const int B = 64;
 const int Share_Mem_Size = 64;
 const int Share_Mem_Row_Size = B;
 int n, m;
