@@ -5,8 +5,9 @@
 
 #define SIZEOFINT sizeof(int)
 const int INF = ((1 << 30) - 1);
-const dim3 block_dim(8, 64);
-const int B = 64;
+const int blockdim_x = 8, blockdim_y = 32;
+const dim3 block_dim(blockdim_x, blockdim_y);
+const int B = 32;
 const int Share_Mem_Size = 64;
 int n, m;
 int *Dist;
@@ -112,22 +113,15 @@ __device__ void flush(int *dist, int (*AM)[Share_Mem_Size][Share_Mem_Size], int 
 }
 
 __global__ void phase3_cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
+    const int Share_Mem_Row_Size = B;
     int block_end_x = block_start_x + block_height;
     int block_end_y = block_start_y + block_width;
+    // printf("%d\n", dist[1]);
     // i-j block
-    // int (*AM)[Share_Mem_Size][Share_Mem_Size];
-    // __shared__ int a[Share_Mem_Size][Share_Mem_Size];
-    int *AM;
     __shared__ int a[Share_Mem_Size * Share_Mem_Size];
     // i-k block
-    // int (*BM)[Share_Mem_Size][Share_Mem_Size];
-    // __shared__ int b[Share_Mem_Size][Share_Mem_Size];
-    int *BM;
     __shared__ int b[Share_Mem_Size * Share_Mem_Size];
     // k-j block
-    // int (*CM)[Share_Mem_Size][Share_Mem_Size];
-    // __shared__ int c[Share_Mem_Size][Share_Mem_Size];
-    int *CM;
     __shared__ int c[Share_Mem_Size * Share_Mem_Size];
 
     for (int b_i = block_start_x + blockIdx.x; b_i < block_end_x; b_i+=gridDim.x) {
@@ -145,25 +139,22 @@ __global__ void phase3_cal_cuda(int *dist, int vertex_num, int edge_num, int B, 
             if (block_internal_end_x > vertex_num) block_internal_end_x = vertex_num;
             if (block_internal_end_y > vertex_num) block_internal_end_y = vertex_num;
             
-            // AM = a;
             for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
                 for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                    a[(i - block_internal_start_x) * Share_Mem_Size + (j - block_internal_start_y)] = dist[i * vertex_num + j];
+                    a[(i - block_internal_start_x) * Share_Mem_Row_Size + (j - block_internal_start_y)] = dist[i * vertex_num + j];
                 }
             }
 
-            // CM = c;
             for (int k = Round * B + threadIdx.x; k < (Round + 1) * B && k < vertex_num; k+=blockDim.x) {
                 for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                    c[(k - Round * B) * Share_Mem_Size + (j - block_internal_start_y)] = dist[k * vertex_num + j];
+                    c[(k - Round * B) * Share_Mem_Row_Size + (j - block_internal_start_y)] = dist[k * vertex_num + j];
                 }
             }
 
             // Reverse the row and column to ensure column-major iteration
-            // BM = b;
             for (int k = Round * B + threadIdx.y; k < (Round + 1) * B && k < vertex_num; k+=blockDim.y) {
                 for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-                    b[(k - Round * B) * Share_Mem_Size + (i - block_internal_start_x)] = dist[i * vertex_num + k];
+                    b[(k - Round * B) * Share_Mem_Row_Size + (i - block_internal_start_x)] = dist[i * vertex_num + k];
                 }
             }
             __syncthreads();
@@ -172,9 +163,9 @@ __global__ void phase3_cal_cuda(int *dist, int vertex_num, int edge_num, int B, 
             for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
                 for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
                     for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                        int d = b[(k - Round * B) * Share_Mem_Size + (i - block_internal_start_x)] + c[(k - Round * B) * Share_Mem_Size + (j - block_internal_start_y)];
-                        if (d < a[(i - block_internal_start_x) * Share_Mem_Size + (j - block_internal_start_y)]) {
-                            a[(i - block_internal_start_x) * Share_Mem_Size + (j - block_internal_start_y)] = d;
+                        int d = b[(k - Round * B) * Share_Mem_Row_Size + (i - block_internal_start_x)] + c[(k - Round * B) * Share_Mem_Row_Size + (j - block_internal_start_y)];
+                        if (d < a[(i - block_internal_start_x) * Share_Mem_Row_Size + (j - block_internal_start_y)]) {
+                            a[(i - block_internal_start_x) * Share_Mem_Row_Size + (j - block_internal_start_y)] = d;
                         }
                     }
                 }
@@ -184,7 +175,7 @@ __global__ void phase3_cal_cuda(int *dist, int vertex_num, int edge_num, int B, 
             // flush(dist, AM, vertex_num, block_internal_start_x, block_internal_end_x, block_internal_start_y, block_internal_end_y);
             for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
                 for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                    dist[i * vertex_num + j] = a[(i - block_internal_start_x) * Share_Mem_Size + (j - block_internal_start_y)];
+                    dist[i * vertex_num + j] = a[(i - block_internal_start_x) * Share_Mem_Row_Size + (j - block_internal_start_y)];
                 }
             }
         }
