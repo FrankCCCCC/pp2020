@@ -5,7 +5,7 @@
 
 #define SIZEOFINT sizeof(int)
 const int INF = ((1 << 30) - 1);
-const dim3 block_dim(8, 32);
+const dim3 block_dim(4, 32);
 const int B = 32;
 const int Share_Mem_Size = 64;
 int n, m;
@@ -338,10 +338,6 @@ void block_FW_cuda(int B) {
         cal_cuda<<<1, block_dim>>>(Dist_cuda, n, m, B, r, r, r, 1, 1);
 
         /* Phase 2*/
-        const int num_stream = 4;
-        cudaStream_t streams[num_stream];
-        for(int i=0; i<num_stream; i++) {cudaStreamCreate(&streams[i]);}
-        
         cal_cuda<<<r, block_dim>>>(Dist_cuda, n, m, B, r, r, 0, r, 1);
         cal_cuda<<<round - r - 1, block_dim>>>(Dist_cuda, n, m, B, r, r, r + 1, round - r - 1, 1);
         cal_cuda<<<r, block_dim>>>(Dist_cuda, n, m, B, r, 0, r, 1, r);

@@ -9,6 +9,7 @@ const int blockdim_x = 8, blockdim_y = 32;
 const dim3 block_dim(blockdim_x, blockdim_y);
 const int B = 32;
 const int Share_Mem_Size = 64;
+const int Share_Mem_Row_Size = B;
 int n, m;
 int *Dist;
 int *Dist_cuda;
@@ -113,7 +114,6 @@ __device__ void flush(int *dist, int (*AM)[Share_Mem_Size][Share_Mem_Size], int 
 }
 
 __global__ void phase3_cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
-    const int Share_Mem_Row_Size = B;
     int block_end_x = block_start_x + block_height;
     int block_end_y = block_start_y + block_width;
     // printf("%d\n", dist[1]);
@@ -162,8 +162,9 @@ __global__ void phase3_cal_cuda(int *dist, int vertex_num, int edge_num, int B, 
             // Relax Path
             for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
                 for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
+                    int bv = b[(k - Round * B) * Share_Mem_Row_Size + (i - block_internal_start_x)];
                     for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                        int d = b[(k - Round * B) * Share_Mem_Row_Size + (i - block_internal_start_x)] + c[(k - Round * B) * Share_Mem_Row_Size + (j - block_internal_start_y)];
+                        int d = bv + c[(k - Round * B) * Share_Mem_Row_Size + (j - block_internal_start_y)];
                         if (d < a[(i - block_internal_start_x) * Share_Mem_Row_Size + (j - block_internal_start_y)]) {
                             a[(i - block_internal_start_x) * Share_Mem_Row_Size + (j - block_internal_start_y)] = d;
                         }
@@ -181,80 +182,19 @@ __global__ void phase3_cal_cuda(int *dist, int vertex_num, int edge_num, int B, 
         }
     }
 }
-
-__global__ void phase2_cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
-    // const int Share_Mem_Size = 64;
-    int block_end_x = block_start_x + block_height;
-    int block_end_y = block_start_y + block_width;
-    // printf("%d\n", dist[1]);
-    // i-j block
-    int (*AM)[Share_Mem_Size][Share_Mem_Size];
-    __shared__ int a[Share_Mem_Size][Share_Mem_Size];
-    // i-k block
-    int (*BM)[Share_Mem_Size][Share_Mem_Size];
-    __shared__ int b[Share_Mem_Size][Share_Mem_Size];
-    // k-j block
-    int (*CM)[Share_Mem_Size][Share_Mem_Size];
-    __shared__ int c[Share_Mem_Size][Share_Mem_Size];
-
-    for (int b_i = block_start_x + blockIdx.x; b_i < block_end_x; b_i+=gridDim.x) {
-        for (int b_j = block_start_y + blockIdx.y; b_j < block_end_y; b_j+=gridDim.y) {
-            // To calculate B*B elements in the block (b_i, b_j)
-            // For each block, it need to compute B times
-
-            // To calculate original index of elements in the block (b_i, b_j)
-            // For instance, original index of (0,0) in block (1,2) is (2,5) for V=6,B=2
-            int block_internal_start_x = b_i * B;
-            int block_internal_end_x = (b_i + 1) * B;
-            int block_internal_start_y = b_j * B;
-            int block_internal_end_y = (b_j + 1) * B;
-
-            if (block_internal_end_x > vertex_num) block_internal_end_x = vertex_num;
-            if (block_internal_end_y > vertex_num) block_internal_end_y = vertex_num;
-            
-            AM = &a;
-            for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-                for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                    a[i - block_internal_start_x][j - block_internal_start_y] = dist[i * vertex_num + j];
-                }
-            }
-
-            CM = &c;
-            for (int k = Round * B + threadIdx.x; k < (Round + 1) * B && k < vertex_num; k+=blockDim.x) {
-                for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                    c[k - Round * B][j - block_internal_start_y] = dist[k * vertex_num + j];
-                }
-            }
-
-            BM = &b;
-            for (int k = Round * B + threadIdx.y; k < (Round + 1) * B && k < vertex_num; k+=blockDim.y) {
-                for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-                    b[i - block_internal_start_x][k - Round * B] = dist[i * vertex_num + k];
-                }
-            }
-            __syncthreads();
-
-            // Relax Path
-            relax(AM, BM, CM, vertex_num, Round, block_internal_start_x, block_internal_end_x, block_internal_start_y, block_internal_end_y);
-            // Move modified block to global memory
-            flush(dist, AM, vertex_num, block_internal_start_x, block_internal_end_x, block_internal_start_y, block_internal_end_y);
-        }
-    }
-}
-
 __global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
     int block_end_x = block_start_x + block_height;
     int block_end_y = block_start_y + block_width;
     // printf("%d\n", dist[1]);
     // i-j block
-    int (*AM)[Share_Mem_Size][Share_Mem_Size];
-    __shared__ int a[Share_Mem_Size][Share_Mem_Size];
+    int (*AM)[Share_Mem_Size * Share_Mem_Size];
+    __shared__ int a[Share_Mem_Size * Share_Mem_Size];
     // i-k block
-    int (*BM)[Share_Mem_Size][Share_Mem_Size];
-    __shared__ int b[Share_Mem_Size][Share_Mem_Size];
+    int (*BM)[Share_Mem_Size * Share_Mem_Size];
+    __shared__ int b[Share_Mem_Size * Share_Mem_Size];
     // k-j block
-    int (*CM)[Share_Mem_Size][Share_Mem_Size];
-    __shared__ int c[Share_Mem_Size][Share_Mem_Size];
+    int (*CM)[Share_Mem_Size * Share_Mem_Size];
+    __shared__ int c[Share_Mem_Size * Share_Mem_Size];
 
     for (int b_i = block_start_x + blockIdx.x; b_i < block_end_x; b_i+=gridDim.x) {
         for (int b_j = block_start_y + blockIdx.y; b_j < block_end_y; b_j+=gridDim.y) {
@@ -263,6 +203,7 @@ __global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Rou
 
             // To calculate original index of elements in the block (b_i, b_j)
             // For instance, original index of (0,0) in block (1,2) is (2,5) for V=6,B=2
+            char is_reverse = 0;
             int block_internal_start_x = b_i * B;
             int block_internal_end_x = (b_i + 1) * B;
             int block_internal_start_y = b_j * B;
@@ -284,7 +225,7 @@ __global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Rou
             AM = &a;
             for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
                 for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                    a[i - block_internal_start_x][j - block_internal_start_y] = dist[i * vertex_num + j];
+                    a[(i - block_internal_start_x) * Share_Mem_Row_Size + (j - block_internal_start_y)] = dist[i * vertex_num + j];
                 }
             }
 
@@ -292,43 +233,49 @@ __global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Rou
                 CM = &c;
                 for (int k = Round * B + threadIdx.x; k < (Round + 1) * B && k < vertex_num; k+=blockDim.x) {
                     for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                        c[k - Round * B][j - block_internal_start_y] = dist[k * vertex_num + j];
+                        c[(k - Round * B) * Share_Mem_Row_Size + (j - block_internal_start_y)] = dist[k * vertex_num + j];
                     }
                 }
             }else{CM = &a;}
 
             if(Round != b_j){
                 BM = &b;
+                is_reverse = 1;
                 for (int k = Round * B + threadIdx.y; k < (Round + 1) * B && k < vertex_num; k+=blockDim.y) {
                     for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-                        b[i - block_internal_start_x][k - Round * B] = dist[i * vertex_num + k];
+                        // b[(i - block_internal_start_x) * Share_Mem_Row_Size + (k - Round * B)] = dist[i * vertex_num + k];
+                        b[(k - Round * B) * Share_Mem_Row_Size + (i - block_internal_start_x)] = dist[i * vertex_num + k];
                     }
                 }
             }else{BM = &a;}
             __syncthreads();
 
             // Relax Path
-            // for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
-            //     for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-            //         for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-            //             int d = (*BM)[i - block_internal_start_x][k - Round * B] + (*CM)[k - Round * B][j - block_internal_start_y];
-            //             // __syncthreads();
-            //             if (d < (*AM)[i - block_internal_start_x][j - block_internal_start_y]) {
-            //                 (*AM)[i - block_internal_start_x][j - block_internal_start_y] = d;
-            //                 // dist[i * vertex_num + j] = d;
-            //             }
-            //         }
-            //     }
-            //     __syncthreads();
-            // }
-            relax(AM, BM, CM, vertex_num, Round, block_internal_start_x, block_internal_end_x, block_internal_start_y, block_internal_end_y);
+            for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
+                for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
+                    int bv = 0;
+                    // bv = (*BM)[(i - block_internal_start_x) * Share_Mem_Row_Size + (k - Round * B)];
+
+                    if(is_reverse){bv = (*BM)[(k - Round * B) * Share_Mem_Row_Size + (i - block_internal_start_x)];}
+                    else{bv = (*BM)[(i - block_internal_start_x) * Share_Mem_Row_Size + (k - Round * B)];}
+
+                    for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
+                        int d = bv + (*CM)[(k - Round * B) * Share_Mem_Row_Size + (j - block_internal_start_y)];
+                        if (d < (*AM)[(i - block_internal_start_x) * Share_Mem_Row_Size + (j - block_internal_start_y)]) {
+                            (*AM)[(i - block_internal_start_x) * Share_Mem_Row_Size + (j - block_internal_start_y)] = d;
+                        }
+                    }
+                }
+                __syncthreads();
+            }
+            // relax(AM, BM, CM, vertex_num, Round, block_internal_start_x, block_internal_end_x, block_internal_start_y, block_internal_end_y);
             // Move modified block to global memory
-            // for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-            //     for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-            //         dist[i * vertex_num + j] = (*AM)[i - block_internal_start_x][j - block_internal_start_y];
-            //     }
-            // }
-            flush(dist, AM, vertex_num, block_internal_start_x, block_internal_end_x, block_internal_start_y, block_internal_end_y);
+            for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
+                for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
+                    dist[i * vertex_num + j] = (*AM)[(i - block_internal_start_x) * Share_Mem_Row_Size + (j - block_internal_start_y)];
+                }
+            }
+            // flush(dist, AM, vertex_num, block_internal_start_x, block_internal_end_x, block_internal_start_y, block_internal_end_y);
         }
     }
 }
@@ -342,11 +289,20 @@ void block_FW_cuda(int B) {
         cal_cuda<<<1, block_dim>>>(Dist_cuda, n, m, B, r, r, r, 1, 1);
 
         /* Phase 2*/
-        cal_cuda<<<r, block_dim>>>(Dist_cuda, n, m, B, r, r, 0, r, 1);
-        cal_cuda<<<round - r - 1, block_dim>>>(Dist_cuda, n, m, B, r, r, r + 1, round - r - 1, 1);
-        cal_cuda<<<r, block_dim>>>(Dist_cuda, n, m, B, r, 0, r, 1, r);
-        cal_cuda<<<round - r - 1, block_dim>>>(Dist_cuda, n, m, B, r, r + 1, r, 1, round - r - 1);
+        const int num_stream = 2;
+        cudaStream_t streams[num_stream];
+        for(int i=0; i<num_stream; i++) {cudaStreamCreate(&streams[i]);}
+        cal_cuda<<<round, block_dim, 0>>>(Dist_cuda, n, m, B, r, r, 0, round, 1);
+        cal_cuda<<<round, block_dim, 1>>>(Dist_cuda, n, m, B, r, 0, r, 1, round);
+        // cudaDeviceSynchronize();
+        for(int i=0; i<num_stream; i++) {
+            cudaStreamDestroy(streams[i]);
+        }
 
+        // cal_cuda<<<round, block_dim>>>(Dist_cuda, n, m, B, r, r, 0, round, 1);
+        // cal_cuda<<<round, block_dim>>>(Dist_cuda, n, m, B, r, 0, r, 1, round);
+
+        // printf("After\n");
         /* Phase 3*/
         const dim3 grid_dim(round, round);
         phase3_cal_cuda<<<grid_dim, block_dim>>>(Dist_cuda, n, m, B, r, 0, 0, round, round);
