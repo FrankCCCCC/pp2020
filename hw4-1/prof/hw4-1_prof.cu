@@ -2,48 +2,17 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 #include <cuda.h>
-#include <time.h>
-// #include <./libs/timer/timer.h>
 
 #define SIZEOFINT sizeof(int)
 const int INF = ((1 << 30) - 1);
-const int blockdim_x = 32, blockdim_y = 32;
-const dim3 block_dim(blockdim_x, blockdim_y);
-const int B = 64;
+int blockdim_x = 16, blockdim_y = 64;
+dim3 block_dim(blockdim_x, blockdim_y);
+int B = 64;
 const int Share_Mem_Size = 64;
-const int Share_Mem_Row_Size = B;
+int Share_Mem_Row_Size = B;
 int n, m;
 int *Dist;
 int *Dist_cuda;
-
-// CUDA Timer
-// 0: Computing, 1: H2D, 2: D2H, 3: I/O Read, 4: I/O Write
-const int timer_len = 5;
-cudaEvent_t start[timer_len], stop[timer_len];
-
-void init_cuda_timer(){
-    for(int i=0; i<timer_len; i++){
-        cudaEventCreate(&(start[i]));
-        cudaEventCreate(&(stop[i]));
-    }
-}
-
-void show_time(){
-    float sum = 0;
-    printf("%d,\t", n);
-    for(int i=0; i<timer_len-1; i++){
-        float t = 0;
-        cudaEventSynchronize(stop[i]);
-        cudaEventElapsedTime(&t, start[i], stop[i]);
-        printf("%f,\t", t);
-        sum += t;
-    }
-    float t = 0;
-    cudaEventSynchronize(stop[timer_len-1]);
-    cudaEventElapsedTime(&t, start[timer_len-1], stop[timer_len-1]);
-    sum += t;
-    printf("%f, %f\n", t, sum);
-}
 
 void show_mat(int *start_p, int vertex_num){
     for(int i = 0; i < vertex_num; i++){
@@ -52,7 +21,8 @@ void show_mat(int *start_p, int vertex_num){
                 printf("INF\t  ");
             }else{
                 printf("%d\t  ", start_p[i * vertex_num + j]);
-            }   
+            }
+            
         }
         printf("\n");
     }
@@ -64,22 +34,17 @@ int *getDistAddr(int i, int j, int vertex_num){return &(Dist[i * vertex_num + j]
 void setDist(int i, int j, int val, int vertex_num){Dist[i * vertex_num + j] = val;}
 
 void setup_DistCuda(int vertex_num){
-    cudaEventRecord(start[1]);
     cudaMalloc((void **)&Dist_cuda, SIZEOFINT * vertex_num * vertex_num);
     cudaMemcpy(Dist_cuda, Dist, (n * n * SIZEOFINT), cudaMemcpyHostToDevice);
-    cudaEventRecord(stop[1]);
 }
 void back_DistCuda(int vertex_num){
-    cudaEventRecord(start[2]);
     cudaMemcpy(Dist, Dist_cuda, (n * n * SIZEOFINT), cudaMemcpyDeviceToHost);
-    cudaEventRecord(stop[2]);
 }
 // int getDistCuda(int i, int j, int vertex_num){return Dist_cuda[i * vertex_num + j];}
 // int *getDistAddrCuda(int i, int j, int vertex_num){return &(Dist_cuda[i * vertex_num + j]);}
 // void setDistCuda(int i, int j, int val, int vertex_num){Dist_cuda[i * vertex_num + j] = val;}
 
 void input(char* infile) {
-    cudaEventRecord(start[3], 0);
     FILE* file = fopen(infile, "rb");
     fread(&n, sizeof(int), 1, file);
     fread(&m, sizeof(int), 1, file);
@@ -106,11 +71,9 @@ void input(char* infile) {
     }
     // cudaMemcpy(Dist_cuda, Dist, (n * n * SIZEOFINT), cudaMemcpyHostToDevice);
     fclose(file);
-    cudaEventRecord(stop[3], 0);
 }
 
 void output(char* outFileName) {
-    cudaEventRecord(start[4], 0);
     FILE* outfile = fopen(outFileName, "w");
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
@@ -122,36 +85,35 @@ void output(char* outFileName) {
     }
     fwrite(getDistAddr(0, 0, n), sizeof(int), n * n, outfile);
     fclose(outfile);
-    cudaEventRecord(stop[4], 0);
 }
 
-__device__ void relax(int (*AM)[Share_Mem_Size][Share_Mem_Size], int (*BM)[Share_Mem_Size][Share_Mem_Size], int (*CM)[Share_Mem_Size][Share_Mem_Size], int vertex_num, int Round, int block_internal_start_x, int block_internal_end_x, int block_internal_start_y, int block_internal_end_y){
-    // Relax Path
-    for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
-        for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-            for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-                int d = (*BM)[i - block_internal_start_x][k - Round * B] + (*CM)[k - Round * B][j - block_internal_start_y];
-                // __syncthreads();
-                if (d < (*AM)[i - block_internal_start_x][j - block_internal_start_y]) {
-                    (*AM)[i - block_internal_start_x][j - block_internal_start_y] = d;
-                    // dist[i * vertex_num + j] = d;
-                }
-            }
-        }
-        __syncthreads();
-    }
-}
+// __device__ void relax(int (*AM)[Share_Mem_Size][Share_Mem_Size], int (*BM)[Share_Mem_Size][Share_Mem_Size], int (*CM)[Share_Mem_Size][Share_Mem_Size], int vertex_num, int Round, int block_internal_start_x, int block_internal_end_x, int block_internal_start_y, int block_internal_end_y){
+//     // Relax Path
+//     for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
+//         for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
+//             for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
+//                 int d = (*BM)[i - block_internal_start_x][k - Round * B] + (*CM)[k - Round * B][j - block_internal_start_y];
+//                 // __syncthreads();
+//                 if (d < (*AM)[i - block_internal_start_x][j - block_internal_start_y]) {
+//                     (*AM)[i - block_internal_start_x][j - block_internal_start_y] = d;
+//                     // dist[i * vertex_num + j] = d;
+//                 }
+//             }
+//         }
+//         __syncthreads();
+//     }
+// }
 
-__device__ void flush(int *dist, int (*AM)[Share_Mem_Size][Share_Mem_Size], int vertex_num, int block_internal_start_x, int block_internal_end_x, int block_internal_start_y, int block_internal_end_y){
-    // Move modified block to global memory
-    for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
-        for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
-            dist[i * vertex_num + j] = (*AM)[i - block_internal_start_x][j - block_internal_start_y];
-        }
-    }
-}
+// __device__ void flush(int *dist, int (*AM)[Share_Mem_Size][Share_Mem_Size], int vertex_num, int block_internal_start_x, int block_internal_end_x, int block_internal_start_y, int block_internal_end_y){
+//     // Move modified block to global memory
+//     for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
+//         for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
+//             dist[i * vertex_num + j] = (*AM)[i - block_internal_start_x][j - block_internal_start_y];
+//         }
+//     }
+// }
 
-__global__ void phase3_cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
+__global__ void phase3_cal_cuda(int *dist, int vertex_num, int edge_num, int Share_Mem_Row_Size, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
     int block_end_x = block_start_x + block_height;
     int block_end_y = block_start_y + block_width;
     // printf("%d\n", dist[1]);
@@ -220,7 +182,7 @@ __global__ void phase3_cal_cuda(int *dist, int vertex_num, int edge_num, int B, 
         }
     }
 }
-__global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
+__global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int Share_Mem_Row_Size, int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
     int block_end_x = block_start_x + block_height;
     int block_end_y = block_start_y + block_width;
     // printf("%d\n", dist[1]);
@@ -320,19 +282,19 @@ __global__ void cal_cuda(int *dist, int vertex_num, int edge_num, int B, int Rou
 
 void block_FW_cuda(int B) {
     int round = (n + B - 1) / B;
-    cudaEventRecord(start[0], 0);
     for (int r = 0; r < round; r++) {
         // printf("Round: %d in total: %d\n", r, round);
         fflush(stdout);
         /* Phase 1*/
-        cal_cuda<<<1, block_dim>>>(Dist_cuda, n, m, B, r, r, r, 1, 1);
+        cal_cuda<<<1, block_dim>>>(Dist_cuda, n, m, Share_Mem_Row_Size, B, r, r, r, 1, 1);
 
         /* Phase 2*/
         const int num_stream = 2;
         cudaStream_t streams[num_stream];
         for(int i=0; i<num_stream; i++) {cudaStreamCreate(&streams[i]);}
-        cal_cuda<<<round, block_dim, 0>>>(Dist_cuda, n, m, B, r, r, 0, round, 1);
-        cal_cuda<<<round, block_dim, 1>>>(Dist_cuda, n, m, B, r, 0, r, 1, round);
+        cal_cuda<<<round, block_dim, 0>>>(Dist_cuda, n, m, Share_Mem_Row_Size, B, r, r, 0, round, 1);
+        cal_cuda<<<round, block_dim, 1>>>(Dist_cuda, n, m, Share_Mem_Row_Size, B, r, 0, r, 1, round);
+        // cudaDeviceSynchronize();
         for(int i=0; i<num_stream; i++) {
             cudaStreamDestroy(streams[i]);
         }
@@ -340,25 +302,26 @@ void block_FW_cuda(int B) {
         // printf("After\n");
         /* Phase 3*/
         const dim3 grid_dim(round, round);
-        phase3_cal_cuda<<<grid_dim, block_dim>>>(Dist_cuda, n, m, B, r, 0, 0, round, round);
+        phase3_cal_cuda<<<grid_dim, block_dim>>>(Dist_cuda, n, m, Share_Mem_Row_Size, B, r, 0, 0, round, round);
     }
-    cudaEventRecord(stop[0], 0);
 }
 
 int main(int argc, char* argv[]) {
-    init_cuda_timer();
+    int blockdim_x = atoi(argv[4]), blockdim_y = atoi(argv[5]);
+    dim3 bd(blockdim_x, blockdim_y);
+    block_dim = bd;
+    B = atoi(argv[3]);
+    Share_Mem_Row_Size = B;
+
     input(argv[1]);
     // show_mat(getDistAddr(0, 0, n), n);
     setup_DistCuda(n);
-    // printf("Vertice: %d, Edge: %d, B: %d\n", n, m, B);
+    printf("Vertice: %d, Edge: %d, B: %d\n", n, m, B);
     block_FW_cuda(B);
     back_DistCuda(n);
     // show_mat(getDistAddr(0, 0, n), n);
     
     output(argv[2]);
     // show_mat(getDistAddr(0, 0, n), n);
-
-    show_time();
-
     return 0;
 }

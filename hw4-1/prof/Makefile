@@ -2,10 +2,8 @@ NVCCFLAGS  = -O3 -std=c++11 -Xptxas=-v -arch=sm_61
 # NVCCFLAGS  = -O3 -std=c++11 -Xptxas=-v -arch=sm_61 -ftz=true -Xcompiler -rdynamic -lineinfo
 NVCC     = nvcc 
 LDFLAGS  := -lm
-DEPS0 = ./libs/timer/timer.c
-DEPS1 = ./libs/timer/timer.h
 
-TARGETS = hw4-1_t hw4-1_nostream_t hw4-1_global_t
+TARGETS = hw4-1_prof
 
 .PHONY: all
 all: $(TARGETS)
