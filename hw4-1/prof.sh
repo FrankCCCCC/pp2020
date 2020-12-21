@@ -18,6 +18,8 @@ rm -f prof/gld_out.txt
 
 target="./execs/hw4-1_prof"
 prof_out="./prof/prof_f"
+prof_out_csv="prof_f.csv"
+prof_out_csv_dir="./prof/"
 post=".nvvp"
 out="prof.out"
 tc="c21.1"
@@ -28,7 +30,8 @@ dim_y=8
 # metric="shared_efficiency"
 # metric="achieved_occupancy"
 
-metrics=(achieved_occupancy gld_throughput shared_load_throughput shared_store_throughput gld_throughput gst_throughput sm_efficiency)
+# metrics=(inst_integer achieved_occupancy shared_load_throughput shared_store_throughput gld_throughput gst_throughput sm_efficiency)
+metrics=(inst_integer)
 
 metrics_num=${#metrics[@]}
 Bs_num=${#Bs[@]}
@@ -46,44 +49,11 @@ do
         echo -e "${COLOR_BLUE}Metric: ${met}"
         echo -e "Param: ${Bs[idxj]} ${dim_x} ${dim_y}${COLOR_REST}"
         # echo -e "srun -p prof -N1 -n1 --gres=gpu:1 nvprof -f -o ${prof_file} --metrics ${met} ${target} /home/pp20/share/hw4-1/cases/${tc} ./out/${out} ${bs} ${dim_x} ${dim_y}"
+        # echo -e "srun -p prof -N1 -n1 --gres=gpu:1 nvprof --csv ${prof_out_csv_dir}${bs}_${met}_${prof_out_csv} --metrics ${met} ${target} /home/pp20/share/hw4-1/cases/${tc} ./out/${out} ${bs} ${dim_x} ${dim_y}"
+        # srun -p prof -N1 -n1 --gres=gpu:1 nvprof --csv ${prof_out_csv_dir}${bs}_${met}_${prof_out_csv} --metrics ${met} ${target} /home/pp20/share/hw4-1/cases/${tc} ./out/${out} ${bs} ${dim_x} ${dim_y}
         echo -e "srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ${target} /home/pp20/share/hw4-1/cases/${tc} ./out/${out} ${bs} ${dim_x} ${dim_y}"
-        srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ${target} /home/pp20/share/hw4-1/cases/${tc} ./out/${out} ${bs} ${dim_x} ${dim_y} >> prof_f.txt
+        srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ${target} /home/pp20/share/hw4-1/cases/${tc} ./out/${out} ${bs} ${dim_x} ${dim_y}
         echo -e "-----------------------\n" >> prof_f.txt
         echo -e "${COLOR_BLUE}-----------------------${COLOR_REST}"
     done
 done
-# echo -e "${COLOR_GREEN}->${metrics[0]}${COLOR_REST}"
-# for ((idx=0;idx<${Bs_num};idx++))
-# do
-#     met=${metrics[0]}
-#     echo -e "${COLOR_BLUE}Metric: ${met} Param: ${Bs[idx]} ${dim_x} ${dim_y}${COLOR_REST}"
-#     echo -e "srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ./execs/hw4-1 /home/pp20/share/hw4-1/cases/c21.1 ./out/c21.1.out ${Bs[idx]} ${dim_x} ${dim_y}"
-#     srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ./execs/hw4-1 /home/pp20/share/hw4-1/cases/c21.1 ./out/c21.1.out ${Bs[idx]} ${dim_x} ${dim_y}
-# done
-
-# echo -e "${COLOR_GREEN}->${metrics[1]}${COLOR_REST}"
-# for ((idx=0;idx<${Bs_num};idx++))
-# do
-#     met=${metrics[1]}
-#     echo -e "${COLOR_BLUE}Metric: ${met} Param: ${Bs[idx]} ${dim_x} ${dim_y}${COLOR_REST}"
-#     echo -e "srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ./execs/hw4-1 /home/pp20/share/hw4-1/cases/c21.1 ./out/c21.1.out ${Bs[idx]} ${dim_x} ${dim_y}"
-#     srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ./execs/hw4-1 /home/pp20/share/hw4-1/cases/c21.1 ./out/c21.1.out ${Bs[idx]} ${dim_x} ${dim_y}
-# done
-
-# echo -e "${COLOR_GREEN}->${metrics[2]}${COLOR_REST}"
-# for ((idx=0;idx<${Bs_num};idx++))
-# do
-#     met=${metrics[2]}
-#     echo -e "${COLOR_BLUE}Metric: ${met} Param: ${Bs[idx]} ${dim_x} ${dim_y}${COLOR_REST}"
-#     echo -e "srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ./execs/hw4-1 /home/pp20/share/hw4-1/cases/c21.1 ./out/c21.1.out ${Bs[idx]} ${dim_x} ${dim_y}"
-#     srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ./execs/hw4-1 /home/pp20/share/hw4-1/cases/c21.1 ./out/c21.1.out ${Bs[idx]} ${dim_x} ${dim_y}
-# done
-
-# echo -e "${COLOR_GREEN}->${metrics[3]}${COLOR_REST}"
-# for ((idx=0;idx<${Bs_num};idx++))
-# do
-#     met=${metrics[3]}
-#     echo -e "${COLOR_BLUE}Metric: ${met} Param: ${Bs[idx]} ${dim_x} ${dim_y}${COLOR_REST}"
-#     echo -e "srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ./execs/hw4-1 /home/pp20/share/hw4-1/cases/c21.1 ./out/c21.1.out ${Bs[idx]} ${dim_x} ${dim_y}"
-#     srun -p prof -N1 -n1 --gres=gpu:1 nvprof --metrics ${met} ./execs/hw4-1 /home/pp20/share/hw4-1/cases/c21.1 ./out/c21.1.out ${Bs[idx]} ${dim_x} ${dim_y}
-# done

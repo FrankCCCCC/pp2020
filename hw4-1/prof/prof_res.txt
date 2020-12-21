@@ -1,16 +1,6 @@
 [pp20s02@hades01 hw4-1]$ bash prof.
 prof.sh   prof.txt
 [pp20s02@hades01 hw4-1]$ bash prof.sh
-Compiling...
-ptxas info    : 0 bytes gmem
-ptxas info    : Compiling entry function '_Z8cal_cudaPiiiiiiiiii' for 'sm_61'
-ptxas info    : Function properties for _Z8cal_cudaPiiiiiiiiii
-    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 39 registers, 49152 bytes smem, 364 bytes cmem[0]
-ptxas info    : Compiling entry function '_Z15phase3_cal_cudaPiiiiiiiiii' for 'sm_61'
-ptxas info    : Function properties for _Z15phase3_cal_cudaPiiiiiiiiii
-    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 33 registers, 49152 bytes smem, 364 bytes cmem[0]
 ->1/28
 Metric: achieved_occupancy
 Param: 8 8 8
