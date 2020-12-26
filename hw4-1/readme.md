@@ -1,3 +1,11 @@
+# Parameters
+
+Best Parameters: 
+
+Block Size: 64, Block Dimension: (8, 64)
+
+```tmux capture-pane -pS -1000000 > file.out```
+
 # References
 - [hw4-1 Scoreboard](https://apollo.cs.nthu.edu.tw/pp20/scoreboard/hw4-1/)
 - [SPEC HW 4-1: Blocked All-Pairs Shortest Path](https://apollo.cs.nthu.edu.tw/pp20/hw4-1/)
@@ -15,3 +23,4 @@
 - [GPU 的硬體架構](http://www2.kimicat.com/gpu%E7%9A%84%E7%A1%AC%E9%AB%94%E6%9E%B6%E6%A7%8B)
 - [CUDA C/C++ Streams and Concurrency](https://developer.download.nvidia.com/CUDA/training/StreamsAndConcurrencyWebinar.pdf)
 - [StackOverflow CUDA shared memory efficiency at 50%?](https://stackoverflow.com/questions/50956939/cuda-shared-memory-efficiency-at-50)
+-[StackOverflow Write all tmux scrollback to a file](https://unix.stackexchange.com/questions/26548/write-all-tmux-scrollback-to-a-file)
