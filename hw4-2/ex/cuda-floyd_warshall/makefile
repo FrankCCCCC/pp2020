@@ -1,7 +1,7 @@
 ############# Makefile for APSP ##############
 
 # Const environments
-NVCC=/usr/local/cuda/bin/nvcc
+NVCC=nvcc
 CPPFLAGS= -O3 -std=c++11
 
 # Define paths

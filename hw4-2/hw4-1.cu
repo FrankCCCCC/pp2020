@@ -85,11 +85,7 @@ void output(char* outFileName) {
     fwrite(getDistAddr(0, 0, n), sizeof(int), n * n, outfile);
     fclose(outfile);
 }
-// __device__ int min_u(int a, int b) {
-//     int diff = a - b;
-//     int dsgn = diff >> 31;
-//     return b + (diff & dsgn);
-// }
+
 __device__ void assignAij(int *dist, int (*AM), int vertex_num, int Round, int block_internal_start_x, int block_internal_end_x, int block_internal_start_y, int block_internal_end_y){
     for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
         for (int j = block_internal_start_y + threadIdx.y; j < block_internal_end_y; j+=blockDim.y) {
@@ -158,6 +154,7 @@ __device__ void relax_r(int (*AM), int (*BM), int (*CM), int vertex_num, int Rou
 
 __device__ void relax_r_async(int (*AM), int (*BM), int (*CM), int vertex_num, int Round, int block_internal_start_x, int block_internal_end_x, int block_internal_start_y, int block_internal_end_y){
     // Relax Path
+    
     for (int k = Round * B; k < (Round + 1) * B && k < vertex_num; k++) {
         for (int i = block_internal_start_x + threadIdx.x; i < block_internal_end_x; i+=blockDim.x) {
             int bv = (BM)[(k - Round * B) * Share_Mem_Row_Size + (i - block_internal_start_x)];
