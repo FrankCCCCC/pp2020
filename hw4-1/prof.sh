@@ -48,6 +48,7 @@ do
         echo -e "${COLOR_GREEN}->${id}/${total}${COLOR_REST}"
         echo -e "${COLOR_BLUE}Metric: ${met}"
         echo -e "Param: ${Bs[idxj]} ${dim_x} ${dim_y}${COLOR_REST}"
+        # srun -p prof -N1 -n1 --gres=gpu:1 nvprof -o ./prof/prof.nvvp ./execs/hw4-1 /home/pp20/share/hw4-1/cases/c21.1 ./out/c21.1
         # echo -e "srun -p prof -N1 -n1 --gres=gpu:1 nvprof -f -o ${prof_file} --metrics ${met} ${target} /home/pp20/share/hw4-1/cases/${tc} ./out/${out} ${bs} ${dim_x} ${dim_y}"
         # echo -e "srun -p prof -N1 -n1 --gres=gpu:1 nvprof --csv ${prof_out_csv_dir}${bs}_${met}_${prof_out_csv} --metrics ${met} ${target} /home/pp20/share/hw4-1/cases/${tc} ./out/${out} ${bs} ${dim_x} ${dim_y}"
         # srun -p prof -N1 -n1 --gres=gpu:1 nvprof --csv ${prof_out_csv_dir}${bs}_${met}_${prof_out_csv} --metrics ${met} ${target} /home/pp20/share/hw4-1/cases/${tc} ./out/${out} ${bs} ${dim_x} ${dim_y}
