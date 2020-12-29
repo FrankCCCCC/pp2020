@@ -117,7 +117,7 @@ __global__ void phase1_cal_cuda(int *dist, int vertex_num, int B, int Round, int
 }
 
 extern __shared__ int sm[];
-__global__ void phase3_cal_cuda(int *dist, int vertex_num, int B, int Round) {
+__global__ void phase3_cal_cuda(int *dist, int vertex_num, int B, int Round, int block_start_x, int block_start_y) {
     // const int Share_Mem_Row_Size3 = 32;
     // const int Share_Mem_Size_sq = 64 * 64;
     // i-j block
@@ -127,10 +127,15 @@ __global__ void phase3_cal_cuda(int *dist, int vertex_num, int B, int Round) {
     // k-j block
     int *c = &(sm[2 * Share_Mem_Size_sq]);
 
+    // To calculate B*B elements in the block (b_i, b_j)
+    // For each block, it need to compute B times
+    int b_i = block_start_x + blockIdx.x;
+    int b_j = block_start_y + blockIdx.y;
+
     // To calculate original index of elements in the block (b_i, b_j)
     // For instance, original index of (0,0) in block (1,2) is (2,5) for V=6,B=2
-    int block_internal_start_x = blockIdx.x * B;
-    int block_internal_start_y = blockIdx.y * B;
+    int block_internal_start_x = b_i * B;
+    int block_internal_start_y = b_j * B;
     int block_internal_start_k = Round * B;
     
     a[(threadIdx.x) * Share_Mem_Row_Size + (threadIdx.y)] = dist[(block_internal_start_x + threadIdx.x) * vertex_num + (block_internal_start_y + threadIdx.y)];
@@ -237,8 +242,14 @@ void block_FW_cuda(int B) {
 
         // printf("After\n");
         /* Phase 3*/
-        const dim3 grid_dim_p3(round, round);
-        phase3_cal_cuda<<<grid_dim_p3, block_dim, 3*Share_Mem_Size_sq*SIZEOFINT>>>(Dist_cuda, padding_n, B, r);
+        const dim3 grid_dim_p31((round+1)/2, round);
+        const dim3 grid_dim_p32(round/2, round);
+        for(int i=0; i<num_stream; i++) {cudaStreamCreate(&streams[i]);}
+        phase3_cal_cuda<<<grid_dim_p31, block_dim, 3*Share_Mem_Size_sq*SIZEOFINT, streams[0]>>>(Dist_cuda, padding_n, B, r, 0, 0);
+        phase3_cal_cuda<<<grid_dim_p32, block_dim, 3*Share_Mem_Size_sq*SIZEOFINT, streams[1]>>>(Dist_cuda, padding_n, B, r, (round+1)/2, 0);
+        for(int i=0; i<num_stream; i++) {
+            cudaStreamDestroy(streams[i]);
+        }
     }
 }
 

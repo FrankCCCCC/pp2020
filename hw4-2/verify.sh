@@ -1,5 +1,5 @@
 # !/bin/bash
-program="hw4-1"
+program="hw4-2"
 
 echo -e "Setting up Environment..."
 rm ./execs/${program}
@@ -29,11 +29,11 @@ do
     fi
     rm out/c${num}.1.out
 
-    echo -e "./execs/${program} ./sample/cases/c${num}.1 ./out/c${num}.1.out"
+    echo -e "./execs/${program} /home/pp20/share/hw4-2/cases/c${num}.1 ./out/c${num}.1.out"
     
-    time ${runner} ./execs/${program} ./sample/cases/c${num}.1 ./out/c${num}.1.out
+    time ${runner} ./execs/${program} /home/pp20/share/hw4-2/cases/c${num}.1 ./out/c${num}.1.out
     echo -e "Diff Result:"
-    diff sample/cases/c${num}.1.out out/c${num}.1.out
+    diff /home/pp20/share/hw4-2/cases/c${num}.1.out out/c${num}.1.out
     # diff sample/cases/c0${tcs[idx]}.1 out/c0${tcs[idx]}.1.out
     echo -e "----------------------------------------"
     echo -e ""

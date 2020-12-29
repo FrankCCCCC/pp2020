@@ -1,5 +1,5 @@
 # !/bin/bash
-program="hw4-1"
+program="hw4-2"
 
 echo -e "Setting up Environment..."
 rm ./execs/${program}
