@@ -1,3 +1,7 @@
+# Mandelbrot set Generator
+
+Generate the photo of Mandelbrot set with MPI, Pthread and OMP.
+
 ## Reference
 
 Simple Thread Pool
